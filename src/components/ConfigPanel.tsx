@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { Save, X, Key, Server, Bot } from 'lucide-react';
+import { Save, X, Key, Server, Bot, Clock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -12,6 +12,7 @@ interface Config {
   openaiApiKey: string;
   mcpServerUrl: string;
   model: string;
+  enableTimeServer: boolean;
 }
 
 interface ConfigPanelProps {
@@ -26,7 +27,7 @@ const ConfigPanel: React.FC<ConfigPanelProps> = ({ config, onSave, onClose }) =>
   const { toast } = useToast();
 
   React.useEffect(() => {
-    const valid = localConfig.openaiApiKey.trim() !== '' && localConfig.mcpServerUrl.trim() !== '';
+    const valid = localConfig.openaiApiKey.trim() !== '';
     setIsValid(valid);
   }, [localConfig]);
 
@@ -47,7 +48,7 @@ const ConfigPanel: React.FC<ConfigPanelProps> = ({ config, onSave, onClose }) =>
     });
   };
 
-  const handleInputChange = (field: keyof Config, value: string) => {
+  const handleInputChange = (field: keyof Config, value: string | boolean) => {
     setLocalConfig(prev => ({
       ...prev,
       [field]: value
@@ -55,20 +56,20 @@ const ConfigPanel: React.FC<ConfigPanelProps> = ({ config, onSave, onClose }) =>
   };
 
   return (
-    <Card className="shadow-lg">
-      <CardHeader className="bg-gray-50 border-b">
+    <Card className="shadow-xl bg-gradient-to-br from-white to-gray-50 border-0">
+      <CardHeader className="bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-t-lg">
         <div className="flex items-center justify-between">
           <CardTitle className="flex items-center gap-2 text-lg">
-            <Key className="w-5 h-5 text-blue-600" />
+            <Key className="w-5 h-5" />
             Configuración
           </CardTitle>
-          <Button variant="ghost" size="sm" onClick={onClose}>
+          <Button variant="ghost" size="sm" onClick={onClose} className="text-white hover:bg-white/20">
             <X className="w-4 h-4" />
           </Button>
         </div>
       </CardHeader>
 
-      <CardContent className="p-4 space-y-4">
+      <CardContent className="p-6 space-y-6">
         {/* OpenAI API Key */}
         <div className="space-y-2">
           <Label htmlFor="apikey" className="text-sm font-medium flex items-center gap-2">
@@ -81,18 +82,47 @@ const ConfigPanel: React.FC<ConfigPanelProps> = ({ config, onSave, onClose }) =>
             value={localConfig.openaiApiKey}
             onChange={(e) => handleInputChange('openaiApiKey', e.target.value)}
             placeholder="sk-..."
-            className="text-sm"
+            className="text-sm border-gray-200 focus:border-blue-400 transition-colors"
           />
           <p className="text-xs text-gray-500">
             Tu clave API de OpenAI para acceder a los modelos
           </p>
         </div>
 
+        {/* Time MCP Server Toggle */}
+        <div className="space-y-3 p-4 bg-gradient-to-r from-amber-50 to-orange-50 rounded-lg border border-amber-200">
+          <div className="flex items-center justify-between">
+            <Label className="text-sm font-medium flex items-center gap-2">
+              <Clock className="w-4 h-4 text-amber-600" />
+              Servidor MCP Time
+            </Label>
+            <Button
+              variant={localConfig.enableTimeServer ? "default" : "outline"}
+              size="sm"
+              onClick={() => handleInputChange('enableTimeServer', !localConfig.enableTimeServer)}
+              className={localConfig.enableTimeServer ? 
+                "bg-gradient-to-r from-amber-500 to-orange-500 text-white" : 
+                "border-amber-300 text-amber-700 hover:bg-amber-50"
+              }
+            >
+              {localConfig.enableTimeServer ? 'Activado' : 'Desactivado'}
+            </Button>
+          </div>
+          <p className="text-xs text-amber-700">
+            Habilita herramientas para obtener hora actual y diferencias horarias
+          </p>
+          {localConfig.enableTimeServer && (
+            <div className="mt-2 p-2 bg-white/50 rounded text-xs text-amber-800">
+              Herramientas disponibles: getCurrentTime, getTimeDifference
+            </div>
+          )}
+        </div>
+
         {/* MCP Server URL */}
         <div className="space-y-2">
           <Label htmlFor="mcpurl" className="text-sm font-medium flex items-center gap-2">
             <Server className="w-4 h-4 text-blue-600" />
-            Servidor MCP *
+            Servidor MCP Adicional (Opcional)
           </Label>
           <Input
             id="mcpurl"
@@ -100,10 +130,10 @@ const ConfigPanel: React.FC<ConfigPanelProps> = ({ config, onSave, onClose }) =>
             value={localConfig.mcpServerUrl}
             onChange={(e) => handleInputChange('mcpServerUrl', e.target.value)}
             placeholder="ws://localhost:3001"
-            className="text-sm"
+            className="text-sm border-gray-200 focus:border-blue-400 transition-colors"
           />
           <p className="text-xs text-gray-500">
-            URL del servidor MCP para búsquedas online
+            URL adicional para otros servidores MCP
           </p>
         </div>
 
@@ -116,7 +146,7 @@ const ConfigPanel: React.FC<ConfigPanelProps> = ({ config, onSave, onClose }) =>
             value={localConfig.model}
             onValueChange={(value) => handleInputChange('model', value)}
           >
-            <SelectTrigger>
+            <SelectTrigger className="border-gray-200 focus:border-blue-400 transition-colors">
               <SelectValue placeholder="Selecciona un modelo" />
             </SelectTrigger>
             <SelectContent>
@@ -128,10 +158,15 @@ const ConfigPanel: React.FC<ConfigPanelProps> = ({ config, onSave, onClose }) =>
         </div>
 
         {/* Connection Status */}
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+        <div className={`p-4 rounded-lg border ${isValid ? 
+          'bg-gradient-to-r from-green-50 to-emerald-50 border-green-200' : 
+          'bg-gradient-to-r from-red-50 to-rose-50 border-red-200'
+        }`}>
           <div className="text-sm">
-            <div className="font-medium text-blue-900 mb-1">Estado de la conexión</div>
-            <div className="text-blue-700 text-xs">
+            <div className={`font-medium mb-1 ${isValid ? 'text-green-900' : 'text-red-900'}`}>
+              Estado de la conexión
+            </div>
+            <div className={`text-xs ${isValid ? 'text-green-700' : 'text-red-700'}`}>
               {isValid ? (
                 "✅ Configuración válida - Listo para conectar"
               ) : (
@@ -142,11 +177,11 @@ const ConfigPanel: React.FC<ConfigPanelProps> = ({ config, onSave, onClose }) =>
         </div>
 
         {/* Action Buttons */}
-        <div className="flex gap-2 pt-2">
+        <div className="flex gap-3 pt-2">
           <Button
             onClick={handleSave}
             disabled={!isValid}
-            className="flex-1"
+            className="flex-1 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white shadow-lg transition-all duration-200"
             size="sm"
           >
             <Save className="w-4 h-4 mr-2" />
@@ -156,18 +191,20 @@ const ConfigPanel: React.FC<ConfigPanelProps> = ({ config, onSave, onClose }) =>
             variant="outline"
             onClick={onClose}
             size="sm"
+            className="border-gray-300 hover:bg-gray-50 transition-colors"
           >
             Cancelar
           </Button>
         </div>
 
         {/* Help Text */}
-        <div className="text-xs text-gray-500 bg-gray-50 p-3 rounded">
-          <div className="font-medium mb-1">Ayuda:</div>
+        <div className="text-xs text-gray-500 bg-gradient-to-r from-gray-50 to-slate-50 p-4 rounded-lg border border-gray-100">
+          <div className="font-medium mb-2 text-gray-700">Ayuda rápida:</div>
           <ul className="space-y-1">
             <li>• Obtén tu API key en: platform.openai.com</li>
-            <li>• El servidor MCP debe estar ejecutándose localmente</li>
-            <li>• Los datos se guardan en tu navegador</li>
+            <li>• Time MCP Server: herramientas de tiempo sin credenciales</li>
+            <li>• Servidores adicionales: para funcionalidades extendidas</li>
+            <li>• Los datos se guardan localmente en tu navegador</li>
           </ul>
         </div>
       </CardContent>
