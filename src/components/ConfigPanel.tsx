@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { Save, X, Key, Server, Bot, Clock } from 'lucide-react';
+import { Save, X, Key, Server, Bot, Clock, Search, Globe } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -13,6 +13,9 @@ interface Config {
   mcpServerUrl: string;
   model: string;
   enableTimeServer: boolean;
+  enableWebSearch: boolean;
+  webSearchProvider: 'pskill9' | 'brave' | 'docker';
+  braveApiKey: string;
 }
 
 interface ConfigPanelProps {
@@ -27,7 +30,10 @@ const ConfigPanel: React.FC<ConfigPanelProps> = ({ config, onSave, onClose }) =>
   const { toast } = useToast();
 
   React.useEffect(() => {
-    const valid = localConfig.openaiApiKey.trim() !== '';
+    const valid = localConfig.openaiApiKey.trim() !== '' && 
+      (!localConfig.enableWebSearch || 
+       localConfig.webSearchProvider !== 'brave' || 
+       localConfig.braveApiKey.trim() !== '');
     setIsValid(valid);
   }, [localConfig]);
 
@@ -111,9 +117,85 @@ const ConfigPanel: React.FC<ConfigPanelProps> = ({ config, onSave, onClose }) =>
           <p className="text-xs text-amber-700">
             Habilita herramientas para obtener hora actual y diferencias horarias
           </p>
-          {localConfig.enableTimeServer && (
-            <div className="mt-2 p-2 bg-white/50 rounded text-xs text-amber-800">
-              Herramientas disponibles: getCurrentTime, getTimeDifference
+        </div>
+
+        {/* Web Search MCP Servers */}
+        <div className="space-y-3 p-4 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border border-blue-200">
+          <div className="flex items-center justify-between">
+            <Label className="text-sm font-medium flex items-center gap-2">
+              <Search className="w-4 h-4 text-blue-600" />
+              Búsqueda Web MCP
+            </Label>
+            <Button
+              variant={localConfig.enableWebSearch ? "default" : "outline"}
+              size="sm"
+              onClick={() => handleInputChange('enableWebSearch', !localConfig.enableWebSearch)}
+              className={localConfig.enableWebSearch ? 
+                "bg-gradient-to-r from-blue-500 to-indigo-500 text-white" : 
+                "border-blue-300 text-blue-700 hover:bg-blue-50"
+              }
+            >
+              {localConfig.enableWebSearch ? 'Activado' : 'Desactivado'}
+            </Button>
+          </div>
+          <p className="text-xs text-blue-700">
+            Habilita búsquedas web en tiempo real con servidores MCP
+          </p>
+
+          {localConfig.enableWebSearch && (
+            <div className="space-y-4 mt-4">
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Proveedor de Búsqueda</Label>
+                <Select
+                  value={localConfig.webSearchProvider}
+                  onValueChange={(value) => handleInputChange('webSearchProvider', value as 'pskill9' | 'brave' | 'docker')}
+                >
+                  <SelectTrigger className="border-blue-200 focus:border-blue-400 transition-colors">
+                    <SelectValue placeholder="Selecciona un proveedor" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="pskill9">pskill9/web-search (Sin credenciales)</SelectItem>
+                    <SelectItem value="brave">Brave Search API (Con API key)</SelectItem>
+                    <SelectItem value="docker">Docker Search Server (Sin credenciales)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {localConfig.webSearchProvider === 'brave' && (
+                <div className="space-y-2">
+                  <Label htmlFor="bravekey" className="text-sm font-medium flex items-center gap-2">
+                    <Globe className="w-4 h-4 text-blue-600" />
+                    Brave Search API Key *
+                  </Label>
+                  <Input
+                    id="bravekey"
+                    type="password"
+                    value={localConfig.braveApiKey}
+                    onChange={(e) => handleInputChange('braveApiKey', e.target.value)}
+                    placeholder="BSA..."
+                    className="text-sm border-blue-200 focus:border-blue-400 transition-colors"
+                  />
+                  <p className="text-xs text-blue-600">
+                    Tu API key de Brave Search (2,000 búsquedas/mes gratis)
+                  </p>
+                </div>
+              )}
+
+              <div className="mt-2 p-2 bg-white/50 rounded text-xs text-blue-800">
+                <div className="font-medium mb-1">Herramientas disponibles:</div>
+                {localConfig.webSearchProvider === 'pskill9' && (
+                  <span>• search(query, limit) - Raspado de Google</span>
+                )}
+                {localConfig.webSearchProvider === 'brave' && (
+                  <div>
+                    <span>• brave_web_search(query, count, offset)</span><br/>
+                    <span>• brave_local_search(query, count)</span>
+                  </div>
+                )}
+                {localConfig.webSearchProvider === 'docker' && (
+                  <span>• google_search - Con caché y opciones avanzadas</span>
+                )}
+              </div>
             </div>
           )}
         </div>
@@ -201,9 +283,10 @@ const ConfigPanel: React.FC<ConfigPanelProps> = ({ config, onSave, onClose }) =>
         <div className="text-xs text-gray-500 bg-gradient-to-r from-gray-50 to-slate-50 p-4 rounded-lg border border-gray-100">
           <div className="font-medium mb-2 text-gray-700">Ayuda rápida:</div>
           <ul className="space-y-1">
-            <li>• Obtén tu API key en: platform.openai.com</li>
-            <li>• Time MCP Server: herramientas de tiempo sin credenciales</li>
-            <li>• Servidores adicionales: para funcionalidades extendidas</li>
+            <li>• Obtén tu OpenAI API key en: platform.openai.com</li>
+            <li>• Brave Search API key gratuita en: brave.com/search/api</li>
+            <li>• pskill9/web-search: sin credenciales, perfecto para pruebas</li>
+            <li>• Docker search: más robusto con caché automático</li>
             <li>• Los datos se guardan localmente en tu navegador</li>
           </ul>
         </div>

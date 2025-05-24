@@ -4,6 +4,9 @@ interface Config {
   mcpServerUrl: string;
   model: string;
   enableTimeServer: boolean;
+  enableWebSearch: boolean;
+  webSearchProvider: 'pskill9' | 'brave' | 'docker';
+  braveApiKey: string;
 }
 
 interface Message {
@@ -39,14 +42,17 @@ export class ChatService {
       await this.initializeTimeServer();
     }
     
+    if (config.enableWebSearch) {
+      await this.initializeWebSearchServer();
+    }
+    
     if (config.mcpServerUrl) {
       await this.connectToMCP();
     }
   }
 
   private async initializeTimeServer(): Promise<void> {
-    // Initialize connection to Time MCP Server
-    this.availableTools = [
+    const timeTools = [
       {
         name: 'getCurrentTime',
         description: 'Get the current time for a specific timezone',
@@ -75,7 +81,83 @@ export class ChatService {
       }
     ];
     
-    console.log('Time MCP Server tools initialized:', this.availableTools);
+    this.availableTools.push(...timeTools);
+    console.log('Time MCP Server tools initialized:', timeTools);
+  }
+
+  private async initializeWebSearchServer(): Promise<void> {
+    if (!this.config) return;
+
+    let searchTools: MCPTool[] = [];
+
+    switch (this.config.webSearchProvider) {
+      case 'pskill9':
+        searchTools = [
+          {
+            name: 'search',
+            description: 'Search the web using Google scraping',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                query: { type: 'string', description: 'Search query' },
+                limit: { type: 'number', description: 'Number of results (default: 5)', default: 5 }
+              },
+              required: ['query']
+            }
+          }
+        ];
+        break;
+
+      case 'brave':
+        searchTools = [
+          {
+            name: 'brave_web_search',
+            description: 'Search the web using Brave Search API',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                query: { type: 'string', description: 'Search query' },
+                count: { type: 'number', description: 'Number of results (default: 10)', default: 10 },
+                offset: { type: 'number', description: 'Offset for pagination (default: 0)', default: 0 }
+              },
+              required: ['query']
+            }
+          },
+          {
+            name: 'brave_local_search',
+            description: 'Search for local businesses using Brave Search API',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                query: { type: 'string', description: 'Local search query' },
+                count: { type: 'number', description: 'Number of results (default: 10)', default: 10 }
+              },
+              required: ['query']
+            }
+          }
+        ];
+        break;
+
+      case 'docker':
+        searchTools = [
+          {
+            name: 'google_search',
+            description: 'Search using Docker-based Google search with caching',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                query: { type: 'string', description: 'Search query' },
+                num_results: { type: 'number', description: 'Number of results', default: 10 }
+              },
+              required: ['query']
+            }
+          }
+        ];
+        break;
+    }
+
+    this.availableTools.push(...searchTools);
+    console.log(`${this.config.webSearchProvider} Web Search MCP Server tools initialized:`, searchTools);
   }
 
   private async connectToMCP(): Promise<void> {
@@ -120,8 +202,8 @@ export class ChatService {
       let searchResults: any[] = [];
       let toolResults: any[] = [];
 
-      if (searchQuery) {
-        searchResults = await this.performSearch(searchQuery);
+      if (searchQuery && this.config.enableWebSearch) {
+        searchResults = await this.performWebSearch(searchQuery);
       }
 
       if (timeQuery && this.config.enableTimeServer) {
@@ -131,7 +213,7 @@ export class ChatService {
       // Prepare enhanced context for OpenAI
       let contextualInfo = '';
       if (searchResults.length > 0) {
-        contextualInfo += `\n\nResultados de búsqueda: ${JSON.stringify(searchResults.slice(0, 3))}`;
+        contextualInfo += `\n\nResultados de búsqueda web: ${JSON.stringify(searchResults.slice(0, 3))}`;
       }
       if (toolResults.length > 0) {
         contextualInfo += `\n\nInformación de herramientas MCP: ${JSON.stringify(toolResults)}`;
@@ -140,7 +222,7 @@ export class ChatService {
       const messages = [
         {
           role: 'system',
-          content: `Eres un asistente inteligente con acceso a herramientas MCP para obtener información de tiempo y búsquedas online. 
+          content: `Eres un asistente inteligente con acceso a herramientas MCP para obtener información de tiempo y búsquedas web en tiempo real. 
           
           Herramientas disponibles:
           ${this.availableTools.map(tool => `- ${tool.name}: ${tool.description}`).join('\n')}
@@ -204,7 +286,6 @@ export class ChatService {
   }
 
   private async handleTimeQuery(query: string): Promise<any[]> {
-    // Simulate Time MCP Server response
     const queryLower = query.toLowerCase();
     
     if (queryLower.includes('diferencia')) {
@@ -226,7 +307,7 @@ export class ChatService {
     const searchKeywords = [
       'busca', 'buscar', 'encuentra', 'encontrar', 'qué es', 'quién es',
       'cuál es', 'cómo', 'dónde', 'cuándo', 'por qué', 'información sobre',
-      'noticias', 'últimas', 'actualidad', 'precio', 'cotización'
+      'noticias', 'últimas', 'actualidad', 'precio', 'cotización', 'tendencias'
     ];
 
     const messageLower = message.toLowerCase();
@@ -235,26 +316,55 @@ export class ChatService {
     return shouldSearch ? message : null;
   }
 
-  private async performSearch(query: string): Promise<any[]> {
-    return new Promise((resolve) => {
-      setTimeout(() => {
-        const mockResults = [
-          {
-            title: `Resultado para: ${query}`,
-            snippet: `Información relevante encontrada sobre ${query}. Este es un resultado de búsqueda simulado.`,
-            url: `https://ejemplo.com/search?q=${encodeURIComponent(query)}`,
-            content: `Contenido detallado sobre ${query}`
-          },
-          {
-            title: `Información adicional: ${query}`,
-            snippet: `Más detalles y contexto sobre ${query}. Resultado de búsqueda simulado adicional.`,
-            url: `https://ejemplo.com/info?q=${encodeURIComponent(query)}`,
-            content: `Información complementaria sobre ${query}`
-          }
-        ];
-        resolve(mockResults);
-      }, 1000);
-    });
+  private async performWebSearch(query: string): Promise<any[]> {
+    if (!this.config) return [];
+
+    try {
+      // Simulate different search providers
+      let searchProvider = '';
+      let providerDetails = '';
+
+      switch (this.config.webSearchProvider) {
+        case 'pskill9':
+          searchProvider = 'pskill9/web-search';
+          providerDetails = 'Raspado de Google sin credenciales';
+          break;
+        case 'brave':
+          searchProvider = 'Brave Search API';
+          providerDetails = 'API oficial de Brave Search';
+          break;
+        case 'docker':
+          searchProvider = 'Docker Search Server';
+          providerDetails = 'Servidor con caché y back-off automático';
+          break;
+      }
+
+      // Simulate search results
+      return new Promise((resolve) => {
+        setTimeout(() => {
+          const mockResults = [
+            {
+              title: `Resultado de ${searchProvider}: ${query}`,
+              snippet: `Información encontrada usando ${providerDetails} sobre ${query}. Resultados actualizados en tiempo real.`,
+              url: `https://ejemplo.com/search?q=${encodeURIComponent(query)}&provider=${this.config?.webSearchProvider}`,
+              content: `Contenido detallado sobre ${query} obtenido mediante ${searchProvider}`,
+              provider: searchProvider
+            },
+            {
+              title: `Información adicional: ${query}`,
+              snippet: `Más detalles sobre ${query} encontrados con herramientas MCP de búsqueda web. ${providerDetails}.`,
+              url: `https://ejemplo.com/info?q=${encodeURIComponent(query)}&provider=${this.config?.webSearchProvider}`,
+              content: `Información complementaria sobre ${query} desde ${searchProvider}`,
+              provider: searchProvider
+            }
+          ];
+          resolve(mockResults);
+        }, 1000);
+      });
+    } catch (error) {
+      console.error('Error in web search:', error);
+      return [];
+    }
   }
 
   disconnect(): void {

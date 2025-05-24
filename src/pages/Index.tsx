@@ -26,6 +26,9 @@ interface Config {
   mcpServerUrl: string;
   model: string;
   enableTimeServer: boolean;
+  enableWebSearch: boolean;
+  webSearchProvider: 'pskill9' | 'brave' | 'docker';
+  braveApiKey: string;
 }
 
 const Index = () => {
@@ -38,7 +41,10 @@ const Index = () => {
     openaiApiKey: localStorage.getItem('openai_api_key') || '',
     mcpServerUrl: localStorage.getItem('mcp_server_url') || '',
     model: 'gpt-4o-mini',
-    enableTimeServer: localStorage.getItem('enable_time_server') === 'true'
+    enableTimeServer: localStorage.getItem('enable_time_server') === 'true',
+    enableWebSearch: localStorage.getItem('enable_web_search') === 'true',
+    webSearchProvider: (localStorage.getItem('web_search_provider') as 'pskill9' | 'brave' | 'docker') || 'pskill9',
+    braveApiKey: localStorage.getItem('brave_api_key') || ''
   });
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -59,10 +65,15 @@ const Index = () => {
     try {
       await chatService.current.initialize(config);
       setIsConnected(true);
+      
+      const activeFeatures = [];
+      if (config.enableTimeServer) activeFeatures.push('Time MCP');
+      if (config.enableWebSearch) activeFeatures.push(`Web Search (${config.webSearchProvider})`);
+      
       toast({
         title: "Conectado",
-        description: config.enableTimeServer ? 
-          "Servicios inicializados con herramientas MCP Time" : 
+        description: activeFeatures.length > 0 ? 
+          `Servicios inicializados: ${activeFeatures.join(', ')}` : 
           "Servicios inicializados correctamente",
       });
     } catch (error) {
@@ -127,7 +138,29 @@ const Index = () => {
     localStorage.setItem('openai_api_key', newConfig.openaiApiKey);
     localStorage.setItem('mcp_server_url', newConfig.mcpServerUrl);
     localStorage.setItem('enable_time_server', newConfig.enableTimeServer.toString());
+    localStorage.setItem('enable_web_search', newConfig.enableWebSearch.toString());
+    localStorage.setItem('web_search_provider', newConfig.webSearchProvider);
+    localStorage.setItem('brave_api_key', newConfig.braveApiKey);
     setShowConfig(false);
+  };
+
+  const getActiveFeatureBadges = () => {
+    const badges = [];
+    if (config.enableTimeServer) {
+      badges.push(
+        <Badge key="time" className="bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-md">
+          Time MCP
+        </Badge>
+      );
+    }
+    if (config.enableWebSearch) {
+      badges.push(
+        <Badge key="search" className="bg-gradient-to-r from-green-500 to-emerald-500 text-white shadow-md">
+          Web Search ({config.webSearchProvider})
+        </Badge>
+      );
+    }
+    return badges;
   };
 
   return (
@@ -145,7 +178,7 @@ const Index = () => {
               </h1>
               <p className="text-gray-600 flex items-center gap-2">
                 <Sparkles className="w-4 h-4 text-amber-500" />
-                Chat inteligente con herramientas MCP y búsqueda online
+                Chat inteligente con herramientas MCP y búsqueda web
               </p>
             </div>
           </div>
@@ -160,11 +193,7 @@ const Index = () => {
             >
               {isConnected ? "Conectado" : "Desconectado"}
             </Badge>
-            {config.enableTimeServer && (
-              <Badge className="bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-md">
-                Time MCP
-              </Badge>
-            )}
+            {getActiveFeatureBadges()}
             <Button
               variant="outline"
               size="sm"
@@ -216,17 +245,17 @@ const Index = () => {
                         ¡Bienvenido al Chat MCP Pro!
                       </p>
                       <p className="text-sm text-gray-500 mb-4">
-                        Haz preguntas sobre tiempo, obtén información actualizada y más
+                        Haz preguntas sobre tiempo, busca información actualizada en web y más
                       </p>
                       <div className="flex flex-wrap justify-center gap-2 text-xs">
                         <span className="bg-gradient-to-r from-amber-100 to-orange-100 text-amber-700 px-3 py-1 rounded-full">
                           Preguntas sobre hora
                         </span>
                         <span className="bg-gradient-to-r from-blue-100 to-indigo-100 text-blue-700 px-3 py-1 rounded-full">
-                          Búsquedas online
+                          Búsquedas web en tiempo real
                         </span>
                         <span className="bg-gradient-to-r from-green-100 to-emerald-100 text-green-700 px-3 py-1 rounded-full">
-                          Información general
+                          Información actualizada
                         </span>
                       </div>
                       {!isConnected && (
@@ -266,7 +295,7 @@ const Index = () => {
                       onKeyPress={handleKeyPress}
                       placeholder={
                         isConnected 
-                          ? "Pregunta sobre la hora, busca información..." 
+                          ? "Pregunta sobre la hora, busca información en web..." 
                           : "Configura las credenciales primero..."
                       }
                       disabled={!isConnected || isLoading}
@@ -283,9 +312,14 @@ const Index = () => {
                   </div>
                   <div className="text-xs text-gray-500 mt-3 flex items-center justify-between">
                     <span>Presiona Enter para enviar • Shift+Enter para nueva línea</span>
-                    {config.enableTimeServer && (
-                      <span className="text-amber-600 font-medium">MCP Time Server activo</span>
-                    )}
+                    <div className="flex gap-2">
+                      {config.enableTimeServer && (
+                        <span className="text-amber-600 font-medium">Time MCP activo</span>
+                      )}
+                      {config.enableWebSearch && (
+                        <span className="text-green-600 font-medium">Web Search ({config.webSearchProvider}) activo</span>
+                      )}
+                    </div>
                   </div>
                 </div>
               </CardContent>
