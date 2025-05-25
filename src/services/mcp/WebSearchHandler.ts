@@ -78,16 +78,74 @@ export class WebSearchHandler {
   }
 
   extractSearchIntent(message: string): string | null {
-    const searchKeywords = [
-      'busca', 'buscar', 'encuentra', 'encontrar', 'qué es', 'quién es',
-      'cuál es', 'cómo', 'dónde', 'cuándo', 'por qué', 'información sobre',
-      'noticias', 'últimas', 'actualidad', 'precio', 'cotización', 'tendencias',
-      'dame información', 'cuéntame sobre', 'explícame', 'detalles sobre'
+    const messageLower = message.toLowerCase().trim();
+    
+    // Palabras que indican búsqueda explícita
+    const explicitSearchKeywords = [
+      'busca', 'buscar', 'busca información', 'busca datos',
+      'encuentra', 'encontrar', 'busca noticias', 'busca sobre',
+      'información sobre', 'información acerca de', 'datos sobre',
+      'noticias sobre', 'noticias de', 'últimas noticias',
+      'qué pasó con', 'qué está pasando con', 'actualidad sobre',
+      'tendencias de', 'precio de', 'cotización de', 'valor de'
     ];
 
-    const messageLower = message.toLowerCase();
-    const shouldSearch = searchKeywords.some(keyword => messageLower.includes(keyword)) ||
-                        messageLower.includes('?');
+    // Palabras de consulta general que requieren búsqueda web
+    const generalQueryKeywords = [
+      'qué es', 'quién es', 'cuál es', 'cómo funciona', 'cómo se hace',
+      'dónde está', 'cuándo ocurrió', 'por qué', 'para qué sirve',
+      'cuéntame sobre', 'explícame', 'háblame de', 'detalles sobre',
+      'características de', 'especificaciones de', 'reviews de',
+      'opiniones sobre', 'comparación entre'
+    ];
+
+    // Temas que típicamente requieren información actualizada
+    const currentTopics = [
+      'clima', 'weather', 'tiempo', 'temperatura',
+      'noticias', 'news', 'actualidad', 'eventos',
+      'precio', 'cotización', 'stock', 'mercado',
+      'resultado', 'partido', 'elecciones', 'política'
+    ];
+
+    // Verificar si contiene palabras de búsqueda explícita
+    const hasExplicitSearch = explicitSearchKeywords.some(keyword => 
+      messageLower.includes(keyword)
+    );
+
+    // Verificar si es una consulta general que requiere búsqueda
+    const hasGeneralQuery = generalQueryKeywords.some(keyword => 
+      messageLower.includes(keyword)
+    );
+
+    // Verificar si menciona temas que requieren información actualizada
+    const hasCurrentTopic = currentTopics.some(topic => 
+      messageLower.includes(topic)
+    );
+
+    // Verificar si es una pregunta (contiene signos de interrogación o palabras interrogativas)
+    const isQuestion = messageLower.includes('?') || 
+      /^(qué|quién|cuál|cómo|dónde|cuándo|por qué|para qué)/i.test(messageLower);
+
+    // Verificar si menciona productos, tecnologías, personas o entidades específicas
+    const mentionsSpecificEntity = /\b(claude|gpt|openai|microsoft|apple|google|tesla|bitcoin|ethereum)\b/i.test(messageLower) ||
+      /\b(iphone|android|windows|linux|mac|ios)\b/i.test(messageLower) ||
+      /\b(python|javascript|react|vue|angular|node)\b/i.test(messageLower);
+
+    // Determinar si debe realizar búsqueda
+    const shouldSearch = hasExplicitSearch || 
+      (hasGeneralQuery && (isQuestion || mentionsSpecificEntity)) ||
+      (isQuestion && hasCurrentTopic) ||
+      (isQuestion && mentionsSpecificEntity);
+
+    console.log('Análisis de intención de búsqueda:', {
+      message: messageLower,
+      hasExplicitSearch,
+      hasGeneralQuery,
+      hasCurrentTopic,
+      isQuestion,
+      mentionsSpecificEntity,
+      shouldSearch
+    });
 
     return shouldSearch ? message : null;
   }
