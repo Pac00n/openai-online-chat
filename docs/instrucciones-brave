@@ -1,0 +1,223 @@
+## Resumen
+
+El **Brave Search MCP Server** es una implementación oficial del Model Context Protocol que permite a tu chatbot realizar búsquedas web y locales usando la API de Brave Search, sin tener que manejar scraping manual o lógica ad-hoc ([npm][1]). Ofrece dos herramientas principales (`brave_web_search` y `brave_local_search`) con opciones para paginar resultados, filtrar por tipo y controlar la frescura de la información ([Glama – MCP Hosting Platform][2]). Gracias a su compatibilidad con MCP sobre WebSocket o STDIO, puedes integrarlo en tu servicio de chat con solo unas líneas de configuración y llamadas estándar `list_tools` / `invoke`, aprovechando así las mejoras recientes de OpenAI en conectividad MCP ([sebastian-petrus.medium.com][3]). A continuación encontrarás instrucciones paso a paso para usarlo en tu proyecto.
+
+---
+
+## 1. ¿Por qué elegir Brave Search MCP Server?
+
+* **Implementación oficial MCP**: Proyecto mantenido por Model Context Protocol con versiones en TypeScript y Python, garantizando compatibilidad y actualizaciones ([GitHub][4]).
+* **Funciones avanzadas**: Soporta búsquedas web genéricas y locales, paginación (`count`, `offset`), filtros de idioma y región, y resultados enriquecidos (titulares, snippets, enlaces) ([Glama – MCP Hosting Platform][2]).
+* **Plan gratuito**: Brave ofrece hasta 2 000 búsquedas/mes sin coste, ideal para desarrollo y pruebas ([Glama – MCP Hosting Platform][2]).
+
+---
+
+## 2. Requisitos previos
+
+1. **Node.js ≥ 16** instalado en tu máquina de desarrollo o servidor.
+2. **Clave de API de Brave Search** obtenida en el portal de desarrolladores de Brave Search ([https://search.brave.com/api](https://search.brave.com/api)) ([Glama – MCP Hosting Platform][2]).
+3. Versión actualizada de **OpenAI Agents SDK** o **Responses API client** (por ejemplo, `@openai/agents-sdk` ≥ 0.7 en Node.js) para aprovechar conectividad MCP nativa ([sebastian-petrus.medium.com][3]).
+
+---
+
+## 3. Instalación del servidor
+
+Puedes ejecutar el servidor Brave Search MCP de dos maneras: **local** (STDIO) o **remoto** (HTTP/SSE convertido a WebSocket).
+
+### 3.1 Instalación local (STDIO)
+
+```bash
+npm install -g @modelcontextprotocol/server-brave-search   # instala el CLI
+```
+
+([npm][1])
+
+### 3.2 Ejecución con NPX
+
+```bash
+npx @modelcontextprotocol/server-brave-search
+```
+
+Esto arranca el servidor en modo STDIO, listo para recibir mensajes MCP ([npm][1]).
+
+---
+
+## 4. Configuración
+
+Crea un archivo `mcp_config.json` o ajusta tu código directamente para pasar los parámetros de ejecución.
+
+```jsonc
+{
+  "mcpServers": [
+    {
+      "name": "brave-search",
+      "transport": "stdio",
+      "command": "node",
+      "args": [
+        "/usr/local/lib/node_modules/@modelcontextprotocol/server-brave-search/dist/index.js"
+      ],
+      "env": {
+        "BRAVE_API_KEY": "TU_BRAVE_API_KEY"
+      }
+    }
+  ]
+}
+```
+
+* `transport: "stdio"` usa STDIO; para WebSocket/HTTP streamable, cambia a `"streamable"` y añade `"url": "http://localhost:PORT/stream"` ([Glama – MCP Hosting Platform][2]).
+* Ajusta la ruta a `index.js` según tu instalación global o local ([Model Context Protocol][5]).
+
+---
+
+## 5. Descubrimiento de herramientas (`list_tools`)
+
+Al iniciar el chat, tu cliente debe enviar:
+
+```json
+{
+  "protocol": "mcp",
+  "version": 1,
+  "action": "list_tools"
+}
+```
+
+El servidor responderá con un array de objetos:
+
+```json
+[
+  {
+    "tool_name": "brave_web_search",
+    "description": "Perform web searches via Brave Search API",
+    "input_schema": { /* JSON Schema */ }
+  },
+  {
+    "tool_name": "brave_local_search",
+    "description": "Perform local business and map searches",
+    "input_schema": { /* JSON Schema */ }
+  }
+]
+```
+
+Esto permite a tu aplicación conocer dinámicamente las capacidades disponibles ([Glama – MCP Hosting Platform][2]).
+
+---
+
+## 6. Invocación de herramientas (`invoke`)
+
+Cuando el modelo sugiera una llamada a herramienta, envía:
+
+```json
+{
+  "protocol": "mcp",
+  "version": 1,
+  "action": "invoke",
+  "tool_name": "brave_web_search",
+  "arguments": {
+    "query": "últimas noticias de OpenAI MCP",
+    "count": 5,
+    "offset": 0,
+    "language": "es"
+  }
+}
+```
+
+Para búsqueda local:
+
+```json
+{
+  "tool_name": "brave_local_search",
+  "arguments": {
+    "query": "restaurantes cerca de Gran Vía, Madrid",
+    "count": 10
+  }
+}
+```
+
+El servidor devuelve:
+
+```json
+{
+  "protocol": "mcp",
+  "version": 1,
+  "status": "success",
+  "tool_name": "brave_web_search",
+  "results": [ /* Array de resultados */ ]
+}
+```
+
+o, en caso de error:
+
+````json
+{
+  "status": "error",
+  "error": "Descripción del problema"
+}
+``` :contentReference[oaicite:13]{index=13}.
+
+---
+
+## 7. Integración en tu `ChatService.ts`
+
+En tu servicio de chat (Node.js + Agents SDK), añade:
+
+```typescript
+import { Agent } from "@openai/agents-sdk";
+import { spawn } from "child_process";
+
+const braveProc = spawn("npx", ["@modelcontextprotocol/server-brave-search"], {
+  env: { ...process.env, BRAVE_API_KEY: process.env.BRAVE_API_KEY }
+});
+
+const mcpServer = {
+  name: "brave-search",
+  transport: "stdio",
+  process: braveProc
+};
+
+async function createAgent() {
+  return new Agent({
+    name: "Paco-brave",
+    instructions: "Usa Brave Search MCP para ayudar con consultas web y locales.",
+    mcpServers: [mcpServer]
+  });
+}
+
+// Uso en flujo de chat
+(async () => {
+  const agent = await createAgent();
+  const stream = await agent.runStream(openaiClient, "Busca novedades sobre GPT-4o");
+  for await (const chunk of stream) process.stdout.write(chunk);
+})();
+````
+
+Este ejemplo levanta el servidor MCP vía `npx`, lo registra en el agente y deja que el modelo invoque `brave_web_search` o `brave_local_search` según corresponda ([GitHub][6]).
+
+---
+
+## 8. Pruebas y validación
+
+1. **Listar herramientas**: al iniciar, verifica que recibes ambos `tool_name` correctos.
+2. **Invocación básica**: envía un mensaje al agente que provoque una búsqueda (p. ej., “Encuentra artículos sobre MCP”) y confirma que aparecen resultados reales.
+3. **Búsqueda local**: prueba con consultas de negocios o lugares para validar `brave_local_search`.
+4. **Manejo de errores**: simula desconexión del servidor o API key inválida y comprueba que tu UI muestra mensajes amigables al usuario.
+5. **Paginación**: solicita más de 10 resultados y ajusta `count`/`offset` para recorrer varias páginas ([Glama – MCP Hosting Platform][2]).
+
+---
+
+## 9. Recursos adicionales
+
+* Repositorio GitHub: [https://github.com/modelcontextprotocol/servers/tree/main/src/brave-search](https://github.com/modelcontextprotocol/servers/tree/main/src/brave-search) ([GitHub][6])
+* Paquete NPM: [https://www.npmjs.com/package/@modelcontextprotocol/server-brave-search](https://www.npmjs.com/package/@modelcontextprotocol/server-brave-search) ([npm][1])
+* Artículo guía (Medium): “Brave Search MCP Server” por Sebastian Petrus, abril 2025 ([sebastian-petrus.medium.com][3])
+* Documentación MCP oficial: [https://modelcontextprotocol.io/examples/exa-mcp](https://modelcontextprotocol.io/examples/exa-mcp) ([Model Context Protocol][5])
+* Especificación MCP (JSON-RPC 2.0): [https://en.wikipedia.org/wiki/Model\_Context\_Protocol](https://en.wikipedia.org/wiki/Model_Context_Protocol) ([Wikipedia][7])
+
+Con estos pasos tendrás tu **chat inteligente** conectado al **servidor Brave Search MCP**, lista para realizar búsquedas web y locales de forma nativa con el estándar MCP.
+
+[1]: https://www.npmjs.com/package/%40modelcontextprotocol/server-brave-search?utm_source=chatgpt.com "@modelcontextprotocol/server-brave-search - npm"
+[2]: https://glama.ai/mcp/servers/%40modelcontextprotocol/brave-search?utm_source=chatgpt.com "Brave Search MCP Server - Glama"
+[3]: https://sebastian-petrus.medium.com/brave-search-mcp-server-e59f44194e27?utm_source=chatgpt.com "A Guide to the Brave Search MCP Server | by Sebastian Petrus | Apr ..."
+[4]: https://github.com/modelcontextprotocol/servers?utm_source=chatgpt.com "modelcontextprotocol/servers: Model Context Protocol ... - GitHub"
+[5]: https://modelcontextprotocol.io/examples?utm_source=chatgpt.com "Example Servers - Model Context Protocol"
+[6]: https://github.com/modelcontextprotocol/servers/tree/main/src/brave-search?utm_source=chatgpt.com "Brave Search MCP Server - GitHub"
+[7]: https://en.wikipedia.org/wiki/Model_Context_Protocol?utm_source=chatgpt.com "Model Context Protocol"
