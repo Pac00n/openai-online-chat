@@ -5,31 +5,27 @@ export class PromptBuilder {
   constructor(private config: Config) {}
 
   buildSystemPrompt(searchResults: any[], toolResults: any[]): string {
-    let systemPrompt = `Eres un asistente de chat inteligente que responde de manera precisa y útil. Responde SIEMPRE en español.
+    let systemPrompt = `Eres un asistente de chat inteligente que responde de manera precisa y útil.
 
-INSTRUCCIONES CRÍTICAS DE BÚSQUEDA WEB:
-1. Si tienes resultados de búsqueda web, DEBES USARLOS EXCLUSIVAMENTE para responder
-2. NUNCA digas que no puedes buscar - si tienes resultados, úsalos completamente
-3. SIEMPRE cita las fuentes específicas usando [Fuente: URL]
-4. SIEMPRE menciona que usaste ${this.config.webSearchProvider} Web Search
-5. Resume y sintetiza la información de los resultados de búsqueda
-6. Sé completo pero conciso en tus respuestas basadas en búsqueda`;
+INSTRUCCIONES CRÍTICAS:
+1. Si tienes resultados de búsqueda web, ÚSALOS EXCLUSIVAMENTE para responder
+2. SIEMPRE cita las fuentes específicas usando [Fuente: URL]
+3. SIEMPRE menciona la herramienta utilizada (${this.config.webSearchProvider} Web Search, Time MCP, etc.)
+4. NO inventes información si no tienes datos de búsqueda
+5. Sé conciso pero completo en tus respuestas
+6. Responde SIEMPRE en español`;
 
     if (searchResults.length > 0) {
-      systemPrompt += `\n\n🔍 TIENES ${searchResults.length} RESULTADOS DE BÚSQUEDA WEB ACTUALIZADOS:
+      systemPrompt += `\n\nTIENES ACCESO A ESTOS RESULTADOS DE BÚSQUEDA WEB REALES:
 Proveedor: ${this.config.webSearchProvider}
-Estado: Información en tiempo real disponible
+Número de resultados: ${searchResults.length}
+Estado: Información actualizada en tiempo real
 
-INSTRUCCIÓN OBLIGATORIA: 
-- Basa tu respuesta ÚNICAMENTE en estos resultados de búsqueda
-- Cita cada fuente específica con [Fuente: URL]
-- Menciona que la información proviene de ${this.config.webSearchProvider} Web Search
-- Sintetiza y resume toda la información disponible
-- NO digas que no tienes información - la tienes en los resultados`;
+IMPORTANTE: Basa tu respuesta EXCLUSIVAMENTE en estos resultados de búsqueda.`;
     }
 
     if (toolResults.length > 0) {
-      systemPrompt += `\n\n⚡ HERRAMIENTAS MCP UTILIZADAS:
+      systemPrompt += `\n\nHERRAMIENTAS MCP UTILIZADAS:
 ${toolResults.map(tool => `- ${tool.tool}: ${tool.result}`).join('\n')}`;
     }
 
@@ -40,22 +36,17 @@ ${toolResults.map(tool => `- ${tool.tool}: ${tool.result}`).join('\n')}`;
     let userPrompt = `Pregunta del usuario: ${message}`;
 
     if (searchResults.length > 0) {
-      userPrompt += `\n\n=== RESULTADOS DE BÚSQUEDA WEB DISPONIBLES (${this.config.webSearchProvider}) ===\n`;
+      userPrompt += `\n\n=== RESULTADOS DE BÚSQUEDA WEB (${this.config.webSearchProvider}) ===\n`;
       searchResults.forEach((result, index) => {
         userPrompt += `\nResultado ${index + 1}:
-Título: ${result.title || 'Sin título'}
-URL: ${result.url || 'URL no disponible'}
-Contenido: ${result.snippet || result.content || 'Contenido no disponible'}
-Proveedor: ${result.provider || this.config.webSearchProvider}
-Timestamp: ${result.timestamp || new Date().toISOString()}
+Título: ${result.title}
+URL: ${result.url}
+Contenido: ${result.snippet || result.content}
+Proveedor: ${result.provider}
+Timestamp: ${result.timestamp}
 ---`;
       });
-      userPrompt += `\n\nINSTRUCCIÓN OBLIGATORIA: 
-- Responde usando TODA esta información de búsqueda web
-- Cita cada fuente específica con [Fuente: URL]
-- Menciona que usaste ${this.config.webSearchProvider} Web Search
-- Resume y sintetiza TODA la información disponible
-- NO digas que no tienes información - la tienes aquí arriba`;
+      userPrompt += `\n\nIMPORTANTE: Usa SOLO esta información para responder. Cita las fuentes específicas.`;
     }
 
     if (toolResults.length > 0) {
@@ -63,13 +54,13 @@ Timestamp: ${result.timestamp || new Date().toISOString()}
       toolResults.forEach((tool, index) => {
         userPrompt += `Herramienta ${index + 1}: ${tool.tool}
 Resultado: ${tool.result}
-Detalles: ${tool.details || 'Sin detalles adicionales'}
+Detalles: ${tool.details}
 ---`;
       });
     }
 
     if (searchResults.length === 0 && toolResults.length === 0) {
-      userPrompt += `\n\nNOTA: No se realizaron búsquedas web ni se usaron herramientas MCP para esta consulta. Responde con tu conocimiento general, pero menciona que no tienes información actualizada.`;
+      userPrompt += `\n\nNOTA: No se realizaron búsquedas web ni se usaron herramientas MCP para esta consulta.`;
     }
 
     return userPrompt;
