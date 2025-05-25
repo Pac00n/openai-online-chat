@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Settings, Search, MessageCircle, Sparkles } from 'lucide-react';
+import { Send, Settings, MessageCircle, Sparkles, WifiOff, Wifi } from 'lucide-react'; // Import Wifi, WifiOff
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -17,18 +17,18 @@ interface Message {
   content: string;
   role: 'user' | 'assistant';
   timestamp: Date;
-  searchResults?: any[];
-  tools?: any[];
+  // searchResults e tools podrían ser manejados de forma diferente o eliminados
+  // si el backend ahora solo devuelve el contenido final del mensaje.
+  // Por ahora los mantenemos por si ChatService los sigue devolviendo.
+  searchResults?: any[]; 
+  tools?: any[]; 
 }
 
+// Interfaz de configuración simplificada para el frontend
 interface Config {
   openaiApiKey: string;
-  mcpServerUrl: string;
   model: string;
-  enableTimeServer: boolean;
-  enableWebSearch: boolean;
-  webSearchProvider: 'pskill9' | 'brave' | 'docker';
-  braveApiKey: string;
+  // backendUrl: string; // Podríamos añadir esto si la URL del backend es configurable
 }
 
 const Index = () => {
@@ -36,59 +36,82 @@ const Index = () => {
   const [inputMessage, setInputMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [showConfig, setShowConfig] = useState(false);
-  const [isConnected, setIsConnected] = useState(false);
+  // isConnected ahora se referirá a la conexión con el backend, no directamente a OpenAI o MCP.
+  const [isBackendConnected, setIsBackendConnected] = useState(false); 
+
   const [config, setConfig] = useState<Config>({
     openaiApiKey: localStorage.getItem('openai_api_key') || '',
-    mcpServerUrl: localStorage.getItem('mcp_server_url') || '',
-    model: 'gpt-4o-mini',
-    enableTimeServer: localStorage.getItem('enable_time_server') === 'true',
-    enableWebSearch: localStorage.getItem('enable_web_search') === 'true',
-    webSearchProvider: (localStorage.getItem('web_search_provider') as 'pskill9' | 'brave' | 'docker') || 'pskill9',
-    braveApiKey: localStorage.getItem('brave_api_key') || ''
+    model: localStorage.getItem('openai_model') || 'gpt-4o-mini',
+    // backendUrl: localStorage.getItem('backend_url') || 'ws://localhost:3001/chat' // Ejemplo
   });
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const chatService = useRef(new ChatService());
+  // La URL del backend podría ser una constante o venir de la config.
+  // const BACKEND_URL = config.backendUrl || 'ws://localhost:3001/chat'; 
+  // Por ahora, ChatService podría instanciarse con la URL del backend si es necesario.
+  const chatService = useRef(new ChatService(/* podrías pasar BACKEND_URL aquí */));
   const { toast } = useToast();
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  // Efecto para inicializar el servicio de chat (que ahora se conectará al backend)
   useEffect(() => {
+    // Solo intentar inicializar si la API key de OpenAI está presente (el backend la necesitará)
     if (config.openaiApiKey) {
-      initializeServices();
+      initializeAndConnectBackend();
+    } else {
+      setIsBackendConnected(false);
+      // Opcional: toast para indicar que se necesita API key para que el backend funcione.
     }
-  }, [config]);
 
-  const initializeServices = async () => {
+    // Cleanup al desmontar o si config cambia
+    return () => {
+      chatService.current.disconnect(); // Suponiendo que disconnect cierra la conexión al backend
+      setIsBackendConnected(false);
+    };
+  }, [config.openaiApiKey]); // Depender solo de openaiApiKey para la inicialización inicial
+
+  const initializeAndConnectBackend = async () => {
+    setIsLoading(true);
     try {
-      await chatService.current.initialize(config);
-      setIsConnected(true);
-      
-      const activeFeatures = [];
-      if (config.enableTimeServer) activeFeatures.push('Time MCP');
-      if (config.enableWebSearch) activeFeatures.push(`Web Search (${config.webSearchProvider})`);
-      
+      // El método initialize de ChatService ahora podría tomar la config relevante 
+      // para el backend (ej. URL del backend si no es fija, y la config de OpenAI para el backend)
+      await chatService.current.initialize({ 
+        openaiApiKey: config.openaiApiKey, 
+        model: config.model 
+        // Pasar otros parámetros si el ChatService los necesita para comunicarse con el backend
+      });
+      setIsBackendConnected(true);
       toast({
-        title: "Conectado",
-        description: activeFeatures.length > 0 ? 
-          `Servicios inicializados: ${activeFeatures.join(', ')}` : 
-          "Servicios inicializados correctamente",
+        title: "Conectado al Backend",
+        description: "Listo para chatear.",
       });
     } catch (error) {
-      console.error('Error initializing services:', error);
-      setIsConnected(false);
+      console.error('Error connecting to backend:', error);
+      setIsBackendConnected(false);
       toast({
-        title: "Error de conexión",
-        description: "No se pudieron inicializar los servicios",
+        title: "Error de conexión al Backend",
+        description: "No se pudo conectar al servidor backend. Verifica la consola.",
         variant: "destructive",
       });
+    } finally {
+      setIsLoading(false);
     }
   };
 
   const handleSendMessage = async () => {
-    if (!inputMessage.trim() || isLoading || !isConnected) return;
+    if (!inputMessage.trim() || isLoading || !isBackendConnected) {
+      if (!isBackendConnected) {
+        toast({
+          title: "Desconectado",
+          description: "No se puede enviar mensaje. Verifica la conexión al backend y la configuración.",
+          variant: "destructive",
+        });
+      }
+      return;
+    }
 
     const userMessage: Message = {
       id: Date.now().toString(),
@@ -98,27 +121,29 @@ const Index = () => {
     };
 
     setMessages(prev => [...prev, userMessage]);
+    const currentInput = inputMessage;
     setInputMessage('');
     setIsLoading(true);
 
     try {
-      const response = await chatService.current.sendMessage(inputMessage, messages);
+      // sendMessage ahora solo envía el mensaje y el historial. El backend maneja las herramientas.
+      const response = await chatService.current.sendMessage(currentInput, messages);
       
       const assistantMessage: Message = {
         id: (Date.now() + 1).toString(),
-        content: response.content,
+        content: response.content, // Asumiendo que response tiene `content`
         role: 'assistant',
         timestamp: new Date(),
-        searchResults: response.searchResults,
-        tools: response.tools
+        // searchResults y tools podrían ya no ser relevantes desde el frontend si el backend los maneja
+        tools: response.tools // Si el backend aún provee esta info para visualización
       };
-
       setMessages(prev => [...prev, assistantMessage]);
     } catch (error) {
-      console.error('Error sending message:', error);
+      console.error('Error sending message via backend:', error);
       toast({
-        title: "Error",
-        description: "No se pudo enviar el mensaje",
+        title: "Error al enviar mensaje",
+        // @ts-ignore
+        description: error.message || "No se pudo comunicar con el backend.",
         variant: "destructive",
       });
     } finally {
@@ -136,37 +161,18 @@ const Index = () => {
   const handleConfigSave = (newConfig: Config) => {
     setConfig(newConfig);
     localStorage.setItem('openai_api_key', newConfig.openaiApiKey);
-    localStorage.setItem('mcp_server_url', newConfig.mcpServerUrl);
-    localStorage.setItem('enable_time_server', newConfig.enableTimeServer.toString());
-    localStorage.setItem('enable_web_search', newConfig.enableWebSearch.toString());
-    localStorage.setItem('web_search_provider', newConfig.webSearchProvider);
-    localStorage.setItem('brave_api_key', newConfig.braveApiKey);
+    localStorage.setItem('openai_model', newConfig.model);
+    // localStorage.setItem('backend_url', newConfig.backendUrl); // Si se hace configurable
     setShowConfig(false);
+    // Re-inicializar la conexión al backend con la nueva configuración
+    // El useEffect que depende de config.openaiApiKey se encargará de esto.
   };
-
-  const getActiveFeatureBadges = () => {
-    const badges = [];
-    if (config.enableTimeServer) {
-      badges.push(
-        <Badge key="time" className="bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-md">
-          Time MCP
-        </Badge>
-      );
-    }
-    if (config.enableWebSearch) {
-      badges.push(
-        <Badge key="search" className="bg-gradient-to-r from-green-500 to-emerald-500 text-white shadow-md">
-          Web Search ({config.webSearchProvider})
-        </Badge>
-      );
-    }
-    return badges;
-  };
+  
+  // Ya no se necesitan getActiveFeatureBadges ya que el backend maneja las herramientas.
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100 p-4 animate-fade-in">
       <div className="max-w-7xl mx-auto">
-        {/* Header */}
         <div className="flex items-center justify-between mb-8 animate-scale-in">
           <div className="flex items-center gap-4">
             <div className="p-3 bg-gradient-to-br from-blue-600 to-purple-600 rounded-xl shadow-lg">
@@ -174,26 +180,25 @@ const Index = () => {
             </div>
             <div>
               <h1 className="text-3xl font-bold bg-gradient-to-r from-gray-900 via-blue-800 to-purple-800 bg-clip-text text-transparent">
-                Chat MCP Pro
+                Chat Inteligente Pro
               </h1>
               <p className="text-gray-600 flex items-center gap-2">
                 <Sparkles className="w-4 h-4 text-amber-500" />
-                Chat inteligente con herramientas MCP y búsqueda web
+                Conectado a Backend para herramientas avanzadas
               </p>
             </div>
           </div>
           
           <div className="flex items-center gap-4">
             <Badge 
-              variant={isConnected ? "default" : "destructive"}
-              className={isConnected ? 
-                "bg-gradient-to-r from-green-500 to-emerald-500 shadow-md" : 
-                "bg-gradient-to-r from-red-500 to-rose-500 shadow-md"
-              }
+              variant={isBackendConnected ? "default" : "destructive"}
+              className={`shadow-md ${isBackendConnected ? 
+                "bg-gradient-to-r from-green-500 to-emerald-500" : 
+                "bg-gradient-to-r from-red-500 to-rose-500"}`}
             >
-              {isConnected ? "Conectado" : "Desconectado"}
+              {isBackendConnected ? <Wifi className="w-4 h-4 mr-1"/> : <WifiOff className="w-4 h-4 mr-1"/>}
+              {isBackendConnected ? "Backend Conectado" : "Backend Desconectado"}
             </Badge>
-            {getActiveFeatureBadges()}
             <Button
               variant="outline"
               size="sm"
@@ -207,7 +212,6 @@ const Index = () => {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
-          {/* Configuration Panel */}
           {showConfig && (
             <div className="lg:col-span-1 animate-slide-in-right">
               <ConfigPanel
@@ -218,14 +222,14 @@ const Index = () => {
             </div>
           )}
 
-          {/* Chat Area */}
           <div className={`${showConfig ? 'lg:col-span-3' : 'lg:col-span-4'} animate-scale-in`}>
             <Card className="h-[650px] flex flex-col shadow-2xl bg-white/80 backdrop-blur-sm border-0">
               <CardHeader className="bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-t-xl">
                 <div className="flex items-center justify-between">
                   <CardTitle className="flex items-center gap-3">
-                    <Search className="w-6 h-6" />
-                    Chat con Herramientas MCP
+                    {/* Icono puede cambiar si ya no es específico de MCP */} 
+                    <MessageCircle className="w-6 h-6" /> 
+                    Chat con Backend
                   </CardTitle>
                   <div className="text-sm opacity-90">
                     {messages.length} mensajes
@@ -234,33 +238,23 @@ const Index = () => {
               </CardHeader>
 
               <CardContent className="flex-1 flex flex-col p-0">
-                {/* Messages Area */}
                 <ScrollArea className="flex-1 p-6">
                   {messages.length === 0 ? (
                     <div className="text-center text-gray-500 mt-12 animate-fade-in">
-                      <div className="w-20 h-20 mx-auto mb-6 bg-gradient-to-br from-blue-100 to-purple-100 rounded-full flex items-center justify-center">
+                       <div className="w-20 h-20 mx-auto mb-6 bg-gradient-to-br from-blue-100 to-purple-100 rounded-full flex items-center justify-center">
                         <MessageCircle className="w-10 h-10 text-blue-500" />
                       </div>
                       <p className="text-xl font-medium text-gray-700 mb-2">
-                        ¡Bienvenido al Chat MCP Pro!
+                        ¡Bienvenido al Chat Inteligente Pro!
                       </p>
                       <p className="text-sm text-gray-500 mb-4">
-                        Haz preguntas sobre tiempo, busca información actualizada en web y más
+                        El chat ahora se conecta a un backend para capacidades mejoradas.
                       </p>
-                      <div className="flex flex-wrap justify-center gap-2 text-xs">
-                        <span className="bg-gradient-to-r from-amber-100 to-orange-100 text-amber-700 px-3 py-1 rounded-full">
-                          Preguntas sobre hora
-                        </span>
-                        <span className="bg-gradient-to-r from-blue-100 to-indigo-100 text-blue-700 px-3 py-1 rounded-full">
-                          Búsquedas web en tiempo real
-                        </span>
-                        <span className="bg-gradient-to-r from-green-100 to-emerald-100 text-green-700 px-3 py-1 rounded-full">
-                          Información actualizada
-                        </span>
-                      </div>
-                      {!isConnected && (
+                      {!isBackendConnected && (
                         <p className="text-red-500 text-sm mt-4 p-3 bg-red-50 rounded-lg mx-auto max-w-md">
-                          Configura tu API key para comenzar
+                          {config.openaiApiKey ? 
+                            "Intentando conectar al backend..." : 
+                            "Configura tu OpenAI API key para habilitar el chat."}
                         </p>
                       )}
                     </div>
@@ -274,7 +268,7 @@ const Index = () => {
                           <div className="bg-gradient-to-r from-gray-100 to-gray-200 rounded-2xl p-4 shadow-md">
                             <div className="flex items-center gap-3">
                               <div className="w-5 h-5 bg-gradient-to-r from-blue-500 to-purple-500 rounded-full animate-pulse"></div>
-                              <span className="text-gray-600">Procesando con herramientas MCP...</span>
+                              <span className="text-gray-600">Procesando en el backend...</span>
                             </div>
                           </div>
                         </div>
@@ -286,7 +280,6 @@ const Index = () => {
 
                 <Separator className="bg-gradient-to-r from-blue-200 to-purple-200" />
 
-                {/* Input Area */}
                 <div className="p-6 bg-gradient-to-r from-gray-50 to-slate-50">
                   <div className="flex gap-3">
                     <Input
@@ -294,16 +287,16 @@ const Index = () => {
                       onChange={(e) => setInputMessage(e.target.value)}
                       onKeyPress={handleKeyPress}
                       placeholder={
-                        isConnected 
-                          ? "Pregunta sobre la hora, busca información en web..." 
-                          : "Configura las credenciales primero..."
+                        isBackendConnected 
+                          ? "Escribe tu mensaje..." 
+                          : (config.openaiApiKey ? "Conectando al backend..." : "Configura tu OpenAI API key primero...")
                       }
-                      disabled={!isConnected || isLoading}
+                      disabled={!isBackendConnected || isLoading || !config.openaiApiKey}
                       className="flex-1 border-gray-200 focus:border-blue-400 transition-all duration-200 shadow-sm"
                     />
                     <Button
                       onClick={handleSendMessage}
-                      disabled={!inputMessage.trim() || isLoading || !isConnected}
+                      disabled={!inputMessage.trim() || isLoading || !isBackendConnected || !config.openaiApiKey}
                       size="sm"
                       className="px-6 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white shadow-lg transition-all duration-200"
                     >
@@ -312,14 +305,7 @@ const Index = () => {
                   </div>
                   <div className="text-xs text-gray-500 mt-3 flex items-center justify-between">
                     <span>Presiona Enter para enviar • Shift+Enter para nueva línea</span>
-                    <div className="flex gap-2">
-                      {config.enableTimeServer && (
-                        <span className="text-amber-600 font-medium">Time MCP activo</span>
-                      )}
-                      {config.enableWebSearch && (
-                        <span className="text-green-600 font-medium">Web Search ({config.webSearchProvider}) activo</span>
-                      )}
-                    </div>
+                     {/* Indicadores de herramientas específicas ya no son necesarios aquí */}
                   </div>
                 </div>
               </CardContent>
