@@ -1,4 +1,3 @@
-
 interface Config {
   openaiApiKey: string;
   mcpServerUrl: string;
@@ -202,33 +201,51 @@ export class ChatService {
       let searchResults: any[] = [];
       let toolResults: any[] = [];
 
+      // Realizar búsquedas web reales si se detecta intención de búsqueda
       if (searchQuery && this.config.enableWebSearch) {
+        console.log('Realizando búsqueda web real para:', searchQuery);
         searchResults = await this.performWebSearch(searchQuery);
+        console.log('Resultados de búsqueda obtenidos:', searchResults);
       }
 
+      // Manejar consultas de tiempo
       if (timeQuery && this.config.enableTimeServer) {
         toolResults = await this.handleTimeQuery(timeQuery);
       }
 
-      // Prepare enhanced context for OpenAI
+      // Preparar contexto enriquecido para OpenAI con resultados reales
       let contextualInfo = '';
       if (searchResults.length > 0) {
-        contextualInfo += `\n\nResultados de búsqueda web: ${JSON.stringify(searchResults.slice(0, 3))}`;
+        contextualInfo += `\n\nRESULTADOS DE BÚSQUEDA WEB REALES (${this.config.webSearchProvider}):\n`;
+        searchResults.forEach((result, index) => {
+          contextualInfo += `${index + 1}. ${result.title}\n`;
+          contextualInfo += `   Fuente: ${result.url}\n`;
+          contextualInfo += `   Contenido: ${result.snippet}\n`;
+          contextualInfo += `   Proveedor: ${result.provider}\n\n`;
+        });
+        contextualInfo += 'IMPORTANTE: Usa EXCLUSIVAMENTE esta información de búsqueda para responder y SIEMPRE menciona las fuentes específicas.\n';
       }
+
       if (toolResults.length > 0) {
-        contextualInfo += `\n\nInformación de herramientas MCP: ${JSON.stringify(toolResults)}`;
+        contextualInfo += `\n\nHERRAMIENTAS MCP UTILIZADAS:\n${JSON.stringify(toolResults, null, 2)}\n`;
       }
 
       const messages = [
         {
           role: 'system',
-          content: `Eres un asistente inteligente con acceso a herramientas MCP para obtener información de tiempo y búsquedas web en tiempo real. 
-          
-          Herramientas disponibles:
-          ${this.availableTools.map(tool => `- ${tool.name}: ${tool.description}`).join('\n')}
-          
-          Cuando tengas resultados de herramientas o búsquedas, úsalos para enriquecer tus respuestas.
-          Sé conciso pero informativo. Siempre responde en español.`
+          content: `Eres un asistente que SIEMPRE debe basarse en los resultados de búsqueda proporcionados cuando están disponibles.
+
+REGLAS IMPORTANTES:
+- Si tienes resultados de búsqueda, úsalos EXCLUSIVAMENTE para responder
+- SIEMPRE menciona las fuentes específicas (URLs) en tu respuesta
+- SIEMPRE indica qué herramienta MCP se utilizó para obtener la información
+- NO inventes información si no tienes resultados de búsqueda
+- Si no hay resultados de búsqueda, indica claramente que no puedes buscar información actualizada
+
+Herramientas MCP disponibles:
+${this.availableTools.map(tool => `- ${tool.name}: ${tool.description}`).join('\n')}
+
+Responde siempre en español y sé conciso pero informativo.`
         },
         ...conversationHistory.slice(-6).map(msg => ({
           role: msg.role,
@@ -249,7 +266,7 @@ export class ChatService {
         body: JSON.stringify({
           model: this.config.model,
           messages: messages,
-          temperature: 0.7,
+          temperature: 0.3, // Reducir temperatura para más precisión
           max_tokens: 1000,
         }),
       });
@@ -307,11 +324,13 @@ export class ChatService {
     const searchKeywords = [
       'busca', 'buscar', 'encuentra', 'encontrar', 'qué es', 'quién es',
       'cuál es', 'cómo', 'dónde', 'cuándo', 'por qué', 'información sobre',
-      'noticias', 'últimas', 'actualidad', 'precio', 'cotización', 'tendencias'
+      'noticias', 'últimas', 'actualidad', 'precio', 'cotización', 'tendencias',
+      'dame información', 'cuéntame sobre', 'explícame', 'detalles sobre'
     ];
 
     const messageLower = message.toLowerCase();
-    const shouldSearch = searchKeywords.some(keyword => messageLower.includes(keyword));
+    const shouldSearch = searchKeywords.some(keyword => messageLower.includes(keyword)) ||
+                        messageLower.includes('?'); // También buscar si hay pregunta
 
     return shouldSearch ? message : null;
   }
@@ -320,7 +339,7 @@ export class ChatService {
     if (!this.config) return [];
 
     try {
-      console.log(`Performing real web search with ${this.config.webSearchProvider} for query: ${query}`);
+      console.log(`Realizando búsqueda web REAL con ${this.config.webSearchProvider} para: ${query}`);
 
       switch (this.config.webSearchProvider) {
         case 'pskill9':
@@ -330,147 +349,164 @@ export class ChatService {
         case 'docker':
           return await this.performDockerSearch(query);
         default:
-          console.warn('Unknown search provider, falling back to mock results');
+          console.warn('Proveedor de búsqueda desconocido');
           return [];
       }
     } catch (error) {
-      console.error('Error in web search:', error);
+      console.error('Error en búsqueda web:', error);
       return [];
     }
   }
 
   private async performPskill9Search(query: string): Promise<any[]> {
     try {
-      // Usar un proxy CORS para hacer la búsqueda real
-      const corsProxy = 'https://api.allorigins.win/raw?url=';
-      const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(query)}&num=5`;
+      console.log('Iniciando búsqueda pskill9 para:', query);
       
-      const response = await fetch(`${corsProxy}${encodeURIComponent(searchUrl)}`, {
+      // Usar un servicio de proxy CORS gratuito
+      const proxyUrl = 'https://corsproxy.io/?';
+      const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(query)}&num=5&hl=es`;
+      
+      const response = await fetch(`${proxyUrl}${encodeURIComponent(searchUrl)}`, {
+        method: 'GET',
         headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         }
       });
 
       if (!response.ok) {
-        throw new Error(`Search failed: ${response.status}`);
+        console.error('Error en respuesta pskill9:', response.status, response.statusText);
+        throw new Error(`Búsqueda falló: ${response.status}`);
       }
 
       const html = await response.text();
+      console.log('HTML recibido, longitud:', html.length);
       
-      // Parser básico para extraer resultados de Google
       const results = this.parseGoogleResults(html, query);
+      console.log('Resultados parseados pskill9:', results);
       
-      console.log('pskill9 search results:', results);
       return results;
     } catch (error) {
-      console.error('pskill9 search error:', error);
-      // Fallback con resultados de ejemplo mejorados
-      return this.getFallbackResults(query, 'pskill9');
+      console.error('Error en pskill9 search:', error);
+      // NO devolver resultados falsos, devolver array vacío
+      return [];
     }
   }
 
   private async performBraveSearch(query: string): Promise<any[]> {
     if (!this.config?.braveApiKey) {
-      console.warn('Brave API key not configured, using fallback');
-      return this.getFallbackResults(query, 'brave');
+      console.warn('Clave API de Brave no configurada');
+      return [];
     }
 
     try {
-      const response = await fetch('https://api.search.brave.com/res/v1/web/search', {
+      console.log('Iniciando búsqueda Brave para:', query);
+      
+      const searchParams = new URLSearchParams({
+        q: query,
+        count: '5',
+        offset: '0',
+        mkt: 'es-ES'
+      });
+
+      const response = await fetch(`https://api.search.brave.com/res/v1/web/search?${searchParams}`, {
         method: 'GET',
         headers: {
           'Accept': 'application/json',
           'Accept-Encoding': 'gzip',
           'X-Subscription-Token': this.config.braveApiKey
-        },
-        params: new URLSearchParams({
-          q: query,
-          count: '5',
-          offset: '0',
-          mkt: 'es-ES'
-        })
+        }
       });
 
       if (!response.ok) {
-        throw new Error(`Brave API error: ${response.status}`);
+        console.error('Error en Brave API:', response.status, response.statusText);
+        throw new Error(`Error en Brave API: ${response.status}`);
       }
 
       const data = await response.json();
+      console.log('Respuesta Brave API:', data);
       
-      const results = data.web?.results?.map((result: any) => ({
-        title: result.title,
-        snippet: result.description,
-        url: result.url,
-        content: result.description,
-        provider: 'Brave Search API'
+      const results = data.web?.results?.map((result: any, index: number) => ({
+        title: result.title || `Resultado ${index + 1}`,
+        snippet: result.description || 'Sin descripción disponible',
+        url: result.url || 'URL no disponible',
+        content: result.description || 'Contenido no disponible',
+        provider: 'Brave Search API',
+        timestamp: new Date().toISOString()
       })) || [];
 
-      console.log('Brave search results:', results);
+      console.log('Resultados Brave procesados:', results);
       return results;
     } catch (error) {
-      console.error('Brave search error:', error);
-      return this.getFallbackResults(query, 'brave');
+      console.error('Error en Brave search:', error);
+      return [];
     }
   }
 
   private async performDockerSearch(query: string): Promise<any[]> {
     try {
-      // Simular llamada a servidor Docker MCP
-      console.log('Docker search would be called here with MCP protocol');
-      return this.getFallbackResults(query, 'docker');
+      console.log('Búsqueda Docker MCP simulada para:', query);
+      // Para búsqueda Docker, implementar llamada real al servidor MCP
+      // Por ahora retornar vacío hasta implementar servidor real
+      return [];
     } catch (error) {
-      console.error('Docker search error:', error);
-      return this.getFallbackResults(query, 'docker');
+      console.error('Error en Docker search:', error);
+      return [];
     }
   }
 
   private parseGoogleResults(html: string, query: string): any[] {
-    // Parser básico para resultados de Google
     const results: any[] = [];
     
-    // Buscar elementos que contengan resultados
-    const titleMatches = html.match(/<h3[^>]*>([^<]+)<\/h3>/g) || [];
-    const linkMatches = html.match(/href="([^"]*google\.com[^"]*)"[^>]*>/g) || [];
-    
-    for (let i = 0; i < Math.min(titleMatches.length, 3); i++) {
-      const title = titleMatches[i]?.replace(/<[^>]*>/g, '') || `Resultado ${i + 1} para: ${query}`;
-      const snippet = `Información encontrada sobre ${query} mediante búsqueda real en Google`;
+    try {
+      // Buscar elementos de resultados de Google más específicamente
+      const titleRegex = /<h3[^>]*class="[^"]*LC20lb[^"]*"[^>]*>([^<]+)<\/h3>/g;
+      const linkRegex = /<a[^>]*href="([^"]*)"[^>]*>[\s\S]*?<h3/g;
+      const snippetRegex = /<span[^>]*class="[^"]*VwiC3b[^"]*"[^>]*>([^<]+)<\/span>/g;
       
-      results.push({
-        title: title.substring(0, 100),
-        snippet: snippet,
-        url: `https://www.google.com/search?q=${encodeURIComponent(query)}`,
-        content: `Contenido detallado sobre ${query}`,
-        provider: 'pskill9/web-search (Google scraping)'
-      });
-    }
-
-    return results.length > 0 ? results : this.getFallbackResults(query, 'pskill9');
-  }
-
-  private getFallbackResults(query: string, provider: string): any[] {
-    const providerNames = {
-      'pskill9': 'pskill9/web-search',
-      'brave': 'Brave Search API',
-      'docker': 'Docker Search Server'
-    };
-
-    return [
-      {
-        title: `Búsqueda sobre: ${query}`,
-        snippet: `Resultados de búsqueda para "${query}" usando ${providerNames[provider as keyof typeof providerNames]}. Información actualizada en tiempo real.`,
-        url: `https://www.google.com/search?q=${encodeURIComponent(query)}`,
-        content: `Información detallada sobre ${query} obtenida mediante ${providerNames[provider as keyof typeof providerNames]}`,
-        provider: providerNames[provider as keyof typeof providerNames]
-      },
-      {
-        title: `Más información: ${query}`,
-        snippet: `Detalles adicionales sobre ${query} encontrados en la web. Resultados procesados por herramientas MCP.`,
-        url: `https://duckduckgo.com/?q=${encodeURIComponent(query)}`,
-        content: `Contenido complementario sobre ${query}`,
-        provider: providerNames[provider as keyof typeof providerNames]
+      let titleMatch;
+      let titleMatches = [];
+      while ((titleMatch = titleRegex.exec(html)) !== null) {
+        titleMatches.push(titleMatch[1]);
       }
-    ];
+
+      let linkMatch;
+      let linkMatches = [];
+      while ((linkMatch = linkRegex.exec(html)) !== null) {
+        // Filtrar enlaces de Google internos
+        if (!linkMatch[1].includes('google.com') && !linkMatch[1].startsWith('/')) {
+          linkMatches.push(linkMatch[1]);
+        }
+      }
+
+      let snippetMatch;
+      let snippetMatches = [];
+      while ((snippetMatch = snippetRegex.exec(html)) !== null) {
+        snippetMatches.push(snippetMatch[1]);
+      }
+
+      console.log('Títulos encontrados:', titleMatches.length);
+      console.log('Enlaces encontrados:', linkMatches.length);
+      console.log('Snippets encontrados:', snippetMatches.length);
+
+      // Combinar resultados
+      const maxResults = Math.min(titleMatches.length, 3);
+      for (let i = 0; i < maxResults; i++) {
+        results.push({
+          title: titleMatches[i] || `Resultado ${i + 1} para: ${query}`,
+          snippet: snippetMatches[i] || 'Snippet no disponible',
+          url: linkMatches[i] || `https://www.google.com/search?q=${encodeURIComponent(query)}`,
+          content: snippetMatches[i] || 'Contenido no disponible',
+          provider: 'pskill9/web-search (Google scraping)',
+          timestamp: new Date().toISOString()
+        });
+      }
+
+      console.log('Resultados finales parseados:', results);
+      return results;
+    } catch (error) {
+      console.error('Error parseando resultados de Google:', error);
+      return [];
+    }
   }
 
   disconnect(): void {
