@@ -80,14 +80,14 @@ export class WebSearchHandler {
   extractSearchIntent(message: string): string | null {
     const messageLower = message.toLowerCase().trim();
     
-    // Palabras que indican búsqueda explícita
+    // Palabras que indican búsqueda explícita - EXPANDIDAS
     const explicitSearchKeywords = [
       'busca', 'buscar', 'busca información', 'busca datos',
-      'encuentra', 'encontrar', 'busca noticias', 'busca sobre',
-      'información sobre', 'información acerca de', 'datos sobre',
-      'noticias sobre', 'noticias de', 'últimas noticias',
-      'qué pasó con', 'qué está pasando con', 'actualidad sobre',
-      'tendencias de', 'precio de', 'cotización de', 'valor de'
+      'busca sobre', 'busca acerca de', 'información sobre', 'información acerca de',
+      'encuentra', 'encontrar', 'busca noticias', 'noticias sobre', 'noticias de',
+      'datos sobre', 'últimas noticias', 'actualidad sobre', 'tendencias de',
+      'precio de', 'cotización de', 'valor de', 'dime sobre', 'cuéntame sobre',
+      'háblame de', 'explícame sobre', 'detalles sobre', 'resumela'
     ];
 
     // Palabras de consulta general que requieren búsqueda web
@@ -96,15 +96,15 @@ export class WebSearchHandler {
       'dónde está', 'cuándo ocurrió', 'por qué', 'para qué sirve',
       'cuéntame sobre', 'explícame', 'háblame de', 'detalles sobre',
       'características de', 'especificaciones de', 'reviews de',
-      'opiniones sobre', 'comparación entre'
+      'opiniones sobre', 'comparación entre', 'resumela', 'resume'
     ];
 
     // Temas que típicamente requieren información actualizada
     const currentTopics = [
-      'clima', 'weather', 'tiempo', 'temperatura',
-      'noticias', 'news', 'actualidad', 'eventos',
-      'precio', 'cotización', 'stock', 'mercado',
-      'resultado', 'partido', 'elecciones', 'política'
+      'claude', 'gpt', 'openai', 'anthropic', 'ai', 'inteligencia artificial',
+      'clima', 'weather', 'tiempo', 'temperatura', 'noticias', 'news',
+      'actualidad', 'eventos', 'precio', 'cotización', 'stock', 'mercado',
+      'resultado', 'partido', 'elecciones', 'política', 'tecnología'
     ];
 
     // Verificar si contiene palabras de búsqueda explícita
@@ -126,16 +126,27 @@ export class WebSearchHandler {
     const isQuestion = messageLower.includes('?') || 
       /^(qué|quién|cuál|cómo|dónde|cuándo|por qué|para qué)/i.test(messageLower);
 
-    // Verificar si menciona productos, tecnologías, personas o entidades específicas
-    const mentionsSpecificEntity = /\b(claude|gpt|openai|microsoft|apple|google|tesla|bitcoin|ethereum)\b/i.test(messageLower) ||
-      /\b(iphone|android|windows|linux|mac|ios)\b/i.test(messageLower) ||
-      /\b(python|javascript|react|vue|angular|node)\b/i.test(messageLower);
+    // Verificar patrones específicos que indican búsqueda
+    const searchPatterns = [
+      /busca\s+(información\s+)?(sobre|acerca\s+de)/i,
+      /información\s+(sobre|acerca\s+de)/i,
+      /cuéntame\s+(sobre|acerca\s+de)/i,
+      /háblame\s+(de|sobre)/i,
+      /explícame\s+(sobre|acerca\s+de)?/i,
+      /resumela?/i,
+      /resume\s/i
+    ];
+
+    const matchesSearchPattern = searchPatterns.some(pattern => 
+      pattern.test(messageLower)
+    );
 
     // Determinar si debe realizar búsqueda
     const shouldSearch = hasExplicitSearch || 
-      (hasGeneralQuery && (isQuestion || mentionsSpecificEntity)) ||
+      matchesSearchPattern ||
+      (hasGeneralQuery && hasCurrentTopic) ||
       (isQuestion && hasCurrentTopic) ||
-      (isQuestion && mentionsSpecificEntity);
+      (hasCurrentTopic && messageLower.length > 10); // Consultas sobre temas actuales
 
     console.log('Análisis de intención de búsqueda:', {
       message: messageLower,
@@ -143,7 +154,7 @@ export class WebSearchHandler {
       hasGeneralQuery,
       hasCurrentTopic,
       isQuestion,
-      mentionsSpecificEntity,
+      matchesSearchPattern,
       shouldSearch
     });
 
