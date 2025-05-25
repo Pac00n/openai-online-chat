@@ -213,23 +213,49 @@ export class ChatService {
         toolResults = await this.handleTimeQuery(timeQuery);
       }
 
-      // Preparar prompt mejorado con información de contexto clara
+      // Preparar contexto enriquecido para OpenAI con resultados reales
+      let contextualInfo = '';
+      if (searchResults.length > 0) {
+        contextualInfo += `\n\nRESULTADOS DE BÚSQUEDA WEB REALES (${this.config.webSearchProvider}):\n`;
+        searchResults.forEach((result, index) => {
+          contextualInfo += `${index + 1}. ${result.title}\n`;
+          contextualInfo += `   Fuente: ${result.url}\n`;
+          contextualInfo += `   Contenido: ${result.snippet}\n`;
+          contextualInfo += `   Proveedor: ${result.provider}\n\n`;
+        });
+        contextualInfo += 'IMPORTANTE: Usa EXCLUSIVAMENTE esta información de búsqueda para responder y SIEMPRE menciona las fuentes específicas.\n';
+      }
+
+      if (toolResults.length > 0) {
+        contextualInfo += `\n\nHERRAMIENTAS MCP UTILIZADAS:\n${JSON.stringify(toolResults, null, 2)}\n`;
+      }
+
       const messages = [
         {
           role: 'system',
-          content: this.buildSystemPrompt(searchResults, toolResults)
+          content: `Eres un asistente que SIEMPRE debe basarse en los resultados de búsqueda proporcionados cuando están disponibles.
+
+REGLAS IMPORTANTES:
+- Si tienes resultados de búsqueda, úsalos EXCLUSIVAMENTE para responder
+- SIEMPRE menciona las fuentes específicas (URLs) en tu respuesta
+- SIEMPRE indica qué herramienta MCP se utilizó para obtener la información
+- NO inventes información si no tienes resultados de búsqueda
+- Si no hay resultados de búsqueda, indica claramente que no puedes buscar información actualizada
+
+Herramientas MCP disponibles:
+${this.availableTools.map(tool => `- ${tool.name}: ${tool.description}`).join('\n')}
+
+Responde siempre en español y sé conciso pero informativo.`
         },
-        ...conversationHistory.slice(-4).map(msg => ({
+        ...conversationHistory.slice(-6).map(msg => ({
           role: msg.role,
           content: msg.content
         })),
         {
           role: 'user',
-          content: this.buildUserPrompt(message, searchResults, toolResults)
+          content: message + contextualInfo
         }
       ];
-
-      console.log('Sending messages to OpenAI:', messages);
 
       const response = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
@@ -240,8 +266,8 @@ export class ChatService {
         body: JSON.stringify({
           model: this.config.model,
           messages: messages,
-          temperature: 0.1, // Muy baja para máxima precisión
-          max_tokens: 1500,
+          temperature: 0.3, // Reducir temperatura para más precisión
+          max_tokens: 1000,
         }),
       });
 
@@ -262,68 +288,6 @@ export class ChatService {
       console.error('Error in sendMessage:', error);
       throw error;
     }
-  }
-
-  private buildSystemPrompt(searchResults: any[], toolResults: any[]): string {
-    let systemPrompt = `Eres un asistente de chat inteligente que responde de manera precisa y útil.
-
-INSTRUCCIONES CRÍTICAS:
-1. Si tienes resultados de búsqueda web, ÚSALOS EXCLUSIVAMENTE para responder
-2. SIEMPRE cita las fuentes específicas usando [Fuente: URL]
-3. SIEMPRE menciona la herramienta utilizada (${this.config?.webSearchProvider} Web Search, Time MCP, etc.)
-4. NO inventes información si no tienes datos de búsqueda
-5. Sé conciso pero completo en tus respuestas
-6. Responde SIEMPRE en español`;
-
-    if (searchResults.length > 0) {
-      systemPrompt += `\n\nTIENES ACCESO A ESTOS RESULTADOS DE BÚSQUEDA WEB REALES:
-Proveedor: ${this.config?.webSearchProvider}
-Número de resultados: ${searchResults.length}
-Estado: Información actualizada en tiempo real
-
-IMPORTANTE: Basa tu respuesta EXCLUSIVAMENTE en estos resultados de búsqueda.`;
-    }
-
-    if (toolResults.length > 0) {
-      systemPrompt += `\n\nHERRAMIENTAS MCP UTILIZADAS:
-${toolResults.map(tool => `- ${tool.tool}: ${tool.result}`).join('\n')}`;
-    }
-
-    return systemPrompt;
-  }
-
-  private buildUserPrompt(message: string, searchResults: any[], toolResults: any[]): string {
-    let userPrompt = `Pregunta del usuario: ${message}`;
-
-    if (searchResults.length > 0) {
-      userPrompt += `\n\n=== RESULTADOS DE BÚSQUEDA WEB (${this.config?.webSearchProvider}) ===\n`;
-      searchResults.forEach((result, index) => {
-        userPrompt += `\nResultado ${index + 1}:
-Título: ${result.title}
-URL: ${result.url}
-Contenido: ${result.snippet || result.content}
-Proveedor: ${result.provider}
-Timestamp: ${result.timestamp}
----`;
-      });
-      userPrompt += `\n\nIMPORTANTE: Usa SOLO esta información para responder. Cita las fuentes específicas.`;
-    }
-
-    if (toolResults.length > 0) {
-      userPrompt += `\n\n=== RESULTADOS DE HERRAMIENTAS MCP ===\n`;
-      toolResults.forEach((tool, index) => {
-        userPrompt += `Herramienta ${index + 1}: ${tool.tool}
-Resultado: ${tool.result}
-Detalles: ${tool.details}
----`;
-      });
-    }
-
-    if (searchResults.length === 0 && toolResults.length === 0) {
-      userPrompt += `\n\nNOTA: No se realizaron búsquedas web ni se usaron herramientas MCP para esta consulta.`;
-    }
-
-    return userPrompt;
   }
 
   private extractTimeIntent(message: string): string | null {
