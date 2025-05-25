@@ -1,0 +1,21 @@
+
+# Dependencias
+node_modules/
+
+# Archivos de build (JavaScript compilado)
+dist/
+
+# Variables de entorno locales
+.env
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# Editor-specific
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
