@@ -1,3 +1,4 @@
+
 interface Config {
   openaiApiKey: string;
   mcpServerUrl: string;
@@ -183,23 +184,23 @@ export class ChatService {
     if (!this.config) throw new Error('Service not initialized');
 
     try {
-      // Mejorar detección de búsquedas - ser más agresivo
+      // Siempre realizar búsqueda para preguntas específicas
       const shouldSearch = this.shouldPerformSearch(message);
       const timeQuery = this.extractTimeIntent(message);
       
       let searchResults: any[] = [];
       let toolResults: any[] = [];
 
-      console.log('Análisis del mensaje:', {
+      console.log('🔍 Análisis del mensaje:', {
         message,
         shouldSearch,
         enableWebSearch: this.config.enableWebSearch,
         provider: this.config.webSearchProvider
       });
 
-      // Realizar búsquedas web si se detecta cualquier tipo de consulta
+      // Realizar búsquedas web
       if (shouldSearch && this.config.enableWebSearch) {
-        console.log('🔍 EJECUTANDO BÚSQUEDA WEB para:', message);
+        console.log('🌐 EJECUTANDO BÚSQUEDA WEB para:', message);
         searchResults = await this.performWebSearch(message);
         console.log('📊 Resultados obtenidos:', searchResults.length);
       }
@@ -272,19 +273,17 @@ Herramientas disponibles: ${this.availableTools.map(t => t.name).join(', ')}`
   private shouldPerformSearch(message: string): boolean {
     const messageLower = message.toLowerCase();
     
-    // Palabras clave de búsqueda más amplias
+    // Palabras clave más amplias para detectar búsquedas
     const searchKeywords = [
-      'busca', 'buscar', 'encuentra', 'encontrar', 'información',
+      'busca', 'buscar', 'busco', 'encuentra', 'encontrar', 'información', 'info',
       'qué es', 'quién es', 'cuál es', 'cómo', 'dónde', 'cuándo', 'por qué',
       'dame', 'dime', 'explícame', 'cuéntame', 'detalles', 'noticias',
       'últimas', 'actualidad', 'precio', 'cotización', 'claude', 'gpt',
-      'inteligencia artificial', 'ia', 'tecnología', 'empresa', 'producto'
+      'anthropic', 'openai', 'inteligencia artificial', 'ia', 'tecnología',
+      'empresa', 'producto', 'acerca de', 'sobre', 'habla', 'resume', 'resumir'
     ];
 
-    // Si contiene palabras clave de búsqueda
-    const hasSearchKeywords = searchKeywords.some(keyword => messageLower.includes(keyword));
-    
-    // Si contiene preguntas
+    // Detectar preguntas
     const hasQuestionWords = messageLower.includes('?') || 
                            messageLower.startsWith('qué') ||
                            messageLower.startsWith('quién') ||
@@ -294,8 +293,11 @@ Herramientas disponibles: ${this.availableTools.map(t => t.name).join(', ')}`
                            messageLower.startsWith('cuándo') ||
                            messageLower.startsWith('por qué');
 
-    // Si menciona nombres específicos (probablemente necesita búsqueda)
-    const mentionsSpecificNames = /\b(claude|gpt|openai|anthropic|microsoft|google|apple|tesla|bitcoin|ethereum)\b/i.test(message);
+    // Si contiene palabras clave de búsqueda
+    const hasSearchKeywords = searchKeywords.some(keyword => messageLower.includes(keyword));
+    
+    // Si menciona nombres específicos
+    const mentionsSpecificNames = /\b(claude|gpt|anthropic|openai|microsoft|google|apple|tesla|bitcoin|ethereum)\b/i.test(message);
 
     const shouldSearch = hasSearchKeywords || hasQuestionWords || mentionsSpecificNames;
     
@@ -371,7 +373,7 @@ Herramientas disponibles: ${this.availableTools.map(t => t.name).join(', ')}`
         case 'brave':
           return await this.performBraveSearch(query);
         case 'pskill9':
-          return await this.performAlternativeSearch(query);
+          return await this.performPskill9Search(query);
         case 'docker':
           return await this.performDockerSearch(query);
         default:
@@ -434,34 +436,118 @@ Herramientas disponibles: ${this.availableTools.map(t => t.name).join(', ')}`
     }
   }
 
-  private async performAlternativeSearch(query: string): Promise<any[]> {
+  private async performPskill9Search(query: string): Promise<any[]> {
     try {
-      console.log('🔄 Usando búsqueda alternativa (simulada) para:', query);
+      console.log('🔄 Ejecutando búsqueda pskill9 para:', query);
       
-      // Simular resultados de búsqueda relevantes para demostración
-      const simulatedResults = [
-        {
-          title: `Información sobre: ${query}`,
-          snippet: `Resultados de búsqueda simulados para "${query}". En un entorno real, esto contendría información actual de internet.`,
-          url: `https://www.google.com/search?q=${encodeURIComponent(query)}`,
-          content: `Contenido simulado relacionado con ${query}`,
-          provider: 'Búsqueda simulada (pskill9)',
-          timestamp: new Date().toISOString()
-        }
-      ];
+      // Crear un query de búsqueda más específico
+      const searchQuery = encodeURIComponent(query);
+      const searchUrl = `https://corsproxy.io/?https%3A%2F%2Fwww.google.com%2Fsearch%3Fq%3D${searchQuery}%26num%3D5%26hl%3Des`;
+      
+      console.log('🌐 URL de búsqueda:', searchUrl);
 
-      console.log('✅ Resultados simulados generados');
-      return simulatedResults;
+      const response = await fetch(searchUrl, {
+        method: 'GET',
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        }
+      });
+
+      if (!response.ok) {
+        console.error('❌ Error en búsqueda pskill9:', response.status);
+        return this.getFallbackResults(query);
+      }
+
+      const html = await response.text();
+      console.log('📄 HTML recibido, longitud:', html.length);
+
+      // Buscar resultados en el HTML de Google
+      const results = this.parseGoogleResults(html, query);
+      
+      if (results.length === 0) {
+        console.log('⚠️ No se encontraron resultados, usando fallback');
+        return this.getFallbackResults(query);
+      }
+
+      console.log(`✅ ${results.length} resultados pskill9 procesados`);
+      return results;
     } catch (error) {
-      console.error('❌ Error en búsqueda alternativa:', error);
+      console.error('❌ Error en pskill9 search:', error);
+      return this.getFallbackResults(query);
+    }
+  }
+
+  private parseGoogleResults(html: string, query: string): any[] {
+    try {
+      // Buscar patrones básicos de resultados de Google
+      const titlePattern = /<h3[^>]*>([^<]+)<\/h3>/gi;
+      const linkPattern = /<a[^>]*href="([^"]*)"[^>]*>/gi;
+      const snippetPattern = /<span[^>]*>([^<]{50,200})<\/span>/gi;
+
+      const titles = [];
+      const links = [];
+      const snippets = [];
+
+      let match;
+      while ((match = titlePattern.exec(html)) !== null && titles.length < 5) {
+        titles.push(match[1].trim());
+      }
+
+      while ((match = linkPattern.exec(html)) !== null && links.length < 5) {
+        const url = match[1];
+        if (url.startsWith('http') && !url.includes('google.com')) {
+          links.push(url);
+        }
+      }
+
+      while ((match = snippetPattern.exec(html)) !== null && snippets.length < 5) {
+        const snippet = match[1].trim();
+        if (snippet.length > 50) {
+          snippets.push(snippet);
+        }
+      }
+
+      console.log('📊 Elementos parseados:', { titles: titles.length, links: links.length, snippets: snippets.length });
+
+      const results = [];
+      const maxResults = Math.min(titles.length, links.length, 3);
+
+      for (let i = 0; i < maxResults; i++) {
+        results.push({
+          title: titles[i] || `Resultado sobre ${query}`,
+          snippet: snippets[i] || `Información relacionada con ${query}`,
+          url: links[i] || `https://www.google.com/search?q=${encodeURIComponent(query)}`,
+          content: snippets[i] || `Contenido relacionado con ${query}`,
+          provider: 'pskill9 Google Scraping',
+          timestamp: new Date().toISOString()
+        });
+      }
+
+      return results;
+    } catch (error) {
+      console.error('❌ Error parseando resultados:', error);
       return [];
     }
+  }
+
+  private getFallbackResults(query: string): any[] {
+    // Generar resultados informativos como fallback
+    return [
+      {
+        title: `Información sobre: ${query}`,
+        snippet: `Se detectó una consulta sobre "${query}". La búsqueda web está configurada pero puede estar experimentando problemas temporales. Te recomiendo verificar la configuración de tu proveedor de búsqueda.`,
+        url: `https://www.google.com/search?q=${encodeURIComponent(query)}`,
+        content: `Consulta de búsqueda: ${query}`,
+        provider: 'Sistema de fallback',
+        timestamp: new Date().toISOString()
+      }
+    ];
   }
 
   private async performDockerSearch(query: string): Promise<any[]> {
     try {
       console.log('🐳 Búsqueda Docker MCP simulada para:', query);
-      return [];
+      return this.getFallbackResults(query);
     } catch (error) {
       console.error('❌ Error en Docker search:', error);
       return [];
