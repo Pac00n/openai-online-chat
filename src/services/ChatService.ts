@@ -1,4 +1,3 @@
-
 interface Config {
   openaiApiKey: string;
   mcpServerUrl: string;
@@ -184,7 +183,6 @@ export class ChatService {
     if (!this.config) throw new Error('Service not initialized');
 
     try {
-      // Siempre realizar búsqueda para preguntas específicas
       const shouldSearch = this.shouldPerformSearch(message);
       const timeQuery = this.extractTimeIntent(message);
       
@@ -203,6 +201,11 @@ export class ChatService {
         console.log('🌐 EJECUTANDO BÚSQUEDA WEB para:', message);
         searchResults = await this.performWebSearch(message);
         console.log('📊 Resultados obtenidos:', searchResults.length);
+        
+        // Log detallado de los resultados
+        if (searchResults.length > 0) {
+          console.log('📄 Primeros resultados:', searchResults.slice(0, 2));
+        }
       }
 
       // Manejar consultas de tiempo
@@ -210,32 +213,8 @@ export class ChatService {
         toolResults = await this.handleTimeQuery(timeQuery);
       }
 
-      // Construir prompt mejorado
-      const enhancedPrompt = this.buildEnhancedPrompt(message, searchResults, toolResults);
-
-      const messages = [
-        {
-          role: 'system',
-          content: `Eres un asistente inteligente con acceso a herramientas de búsqueda web y tiempo en tiempo real.
-
-INSTRUCCIONES CRÍTICAS:
-1. Si tienes resultados de búsqueda, ÚSALOS SIEMPRE como fuente principal
-2. MENCIONA SIEMPRE las fuentes (URLs) cuando uses información de búsqueda
-3. INDICA el proveedor de búsqueda usado (${this.config.webSearchProvider})
-4. Si NO tienes resultados de búsqueda para una consulta que requiere información actualizada, dilo claramente
-5. Responde SIEMPRE en español
-
-Herramientas disponibles: ${this.availableTools.map(t => t.name).join(', ')}`
-        },
-        ...conversationHistory.slice(-6).map(msg => ({
-          role: msg.role,
-          content: msg.content
-        })),
-        {
-          role: 'user',
-          content: enhancedPrompt
-        }
-      ];
+      // Construir mensajes con información de búsqueda integrada
+      const messages = this.buildMessagesWithSearchContext(message, conversationHistory, searchResults, toolResults);
 
       const response = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
@@ -247,7 +226,7 @@ Herramientas disponibles: ${this.availableTools.map(t => t.name).join(', ')}`
           model: this.config.model,
           messages: messages,
           temperature: 0.3,
-          max_tokens: 1000,
+          max_tokens: 1500,
         }),
       });
 
@@ -268,6 +247,82 @@ Herramientas disponibles: ${this.availableTools.map(t => t.name).join(', ')}`
       console.error('Error in sendMessage:', error);
       throw error;
     }
+  }
+
+  private buildMessagesWithSearchContext(message: string, conversationHistory: Message[], searchResults: any[], toolResults: any[]) {
+    const systemPrompt = this.createSystemPrompt(searchResults, toolResults);
+    const userPrompt = this.createUserPrompt(message, searchResults, toolResults);
+
+    return [
+      {
+        role: 'system',
+        content: systemPrompt
+      },
+      ...conversationHistory.slice(-4).map(msg => ({
+        role: msg.role,
+        content: msg.content
+      })),
+      {
+        role: 'user',
+        content: userPrompt
+      }
+    ];
+  }
+
+  private createSystemPrompt(searchResults: any[], toolResults: any[]): string {
+    let prompt = `Eres un asistente inteligente que SIEMPRE debe usar la información proporcionada de búsquedas web y herramientas para responder.
+
+REGLAS OBLIGATORIAS:
+1. Si recibes resultados de búsqueda web, DEBES usarlos como fuente principal de información
+2. SIEMPRE menciona las fuentes específicas (URLs) cuando uses información de búsqueda
+3. NUNCA digas que no tienes información si hay resultados de búsqueda disponibles
+4. Responde SIEMPRE en español
+5. Sintetiza la información de múltiples fuentes cuando esté disponible`;
+
+    if (searchResults.length > 0) {
+      prompt += `\n\n🌐 TIENES ACCESO A BÚSQUEDA WEB EN TIEMPO REAL
+Proveedor: ${this.config?.webSearchProvider}
+Resultados disponibles: ${searchResults.length}
+INSTRUCCIÓN CRÍTICA: USA esta información para responder la pregunta del usuario.`;
+    }
+
+    if (toolResults.length > 0) {
+      prompt += `\n\n🛠️ TIENES ACCESO A HERRAMIENTAS MCP
+Herramientas ejecutadas: ${toolResults.length}`;
+    }
+
+    return prompt;
+  }
+
+  private createUserPrompt(message: string, searchResults: any[], toolResults: any[]): string {
+    let prompt = `Pregunta del usuario: ${message}`;
+
+    if (searchResults.length > 0) {
+      prompt += `\n\n📊 INFORMACIÓN DE BÚSQUEDA WEB DISPONIBLE:`;
+      
+      searchResults.forEach((result, index) => {
+        prompt += `\n\n--- RESULTADO ${index + 1} ---`;
+        prompt += `\nTítulo: ${result.title}`;
+        prompt += `\nFuente: ${result.url}`;
+        prompt += `\nContenido: ${result.snippet || result.content}`;
+        prompt += `\nProveedor: ${result.provider}`;
+      });
+
+      prompt += `\n\n⚠️ INSTRUCCIÓN OBLIGATORIA: 
+- USA la información anterior para responder
+- MENCIONA las fuentes específicas
+- NO digas que no tienes información
+- SINTETIZA los datos de las diferentes fuentes`;
+    }
+
+    if (toolResults.length > 0) {
+      prompt += `\n\n🛠️ RESULTADOS DE HERRAMIENTAS MCP:`;
+      toolResults.forEach((tool, index) => {
+        prompt += `\n${index + 1}. ${tool.tool}: ${tool.result}`;
+      });
+    }
+
+    return prompt;
   }
 
   private shouldPerformSearch(message: string): boolean {
@@ -310,27 +365,6 @@ Herramientas disponibles: ${this.availableTools.map(t => t.name).join(', ')}`
     });
 
     return shouldSearch;
-  }
-
-  private buildEnhancedPrompt(message: string, searchResults: any[], toolResults: any[]): string {
-    let prompt = message;
-
-    if (searchResults.length > 0) {
-      prompt += `\n\n📊 RESULTADOS DE BÚSQUEDA WEB REAL (${this.config?.webSearchProvider}):\n`;
-      searchResults.forEach((result, index) => {
-        prompt += `\n${index + 1}. ${result.title}\n`;
-        prompt += `   📍 Fuente: ${result.url}\n`;
-        prompt += `   💬 Contenido: ${result.snippet || result.content}\n`;
-        prompt += `   🔧 Proveedor: ${result.provider}\n`;
-      });
-      prompt += '\n⚠️ IMPORTANTE: Usa esta información de búsqueda para responder y SIEMPRE menciona las fuentes específicas.\n';
-    }
-
-    if (toolResults.length > 0) {
-      prompt += `\n\n🛠️ HERRAMIENTAS MCP UTILIZADAS:\n${JSON.stringify(toolResults, null, 2)}\n`;
-    }
-
-    return prompt;
   }
 
   private extractTimeIntent(message: string): string | null {
