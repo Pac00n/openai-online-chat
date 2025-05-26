@@ -1,6 +1,5 @@
-
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Settings, Search, MessageCircle, Sparkles } from 'lucide-react';
+import { Send, Settings, Search, MessageCircle, Sparkles, Globe } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -29,6 +28,8 @@ interface Config {
   enableWebSearch: boolean;
   webSearchProvider: 'pskill9' | 'brave' | 'docker';
   braveApiKey: string;
+  n8nWebhookUrl: string;
+  useN8nBackend: boolean;
 }
 
 const Index = () => {
@@ -44,7 +45,9 @@ const Index = () => {
     enableTimeServer: localStorage.getItem('enable_time_server') === 'true',
     enableWebSearch: localStorage.getItem('enable_web_search') === 'true',
     webSearchProvider: (localStorage.getItem('web_search_provider') as 'pskill9' | 'brave' | 'docker') || 'pskill9',
-    braveApiKey: localStorage.getItem('brave_api_key') || ''
+    braveApiKey: localStorage.getItem('brave_api_key') || '',
+    n8nWebhookUrl: localStorage.getItem('n8n_webhook_url') || 'https://primary-production-f283.up.railway.app/webhook/chat',
+    useN8nBackend: localStorage.getItem('use_n8n_backend') === 'true'
   });
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -56,7 +59,7 @@ const Index = () => {
   }, [messages]);
 
   useEffect(() => {
-    if (config.openaiApiKey) {
+    if (config.useN8nBackend ? config.n8nWebhookUrl : config.openaiApiKey) {
       initializeServices();
     }
   }, [config]);
@@ -66,22 +69,24 @@ const Index = () => {
       await chatService.current.initialize(config);
       setIsConnected(true);
       
-      const activeFeatures = [];
-      if (config.enableTimeServer) activeFeatures.push('Time MCP');
-      if (config.enableWebSearch) activeFeatures.push(`Web Search (${config.webSearchProvider})`);
+      const backend = config.useN8nBackend ? 'n8n Workflow' : 'MCP Local';
+      const activeFeatures = [backend];
+      
+      if (!config.useN8nBackend) {
+        if (config.enableTimeServer) activeFeatures.push('Time MCP');
+        if (config.enableWebSearch) activeFeatures.push(`Web Search (${config.webSearchProvider})`);
+      }
       
       toast({
         title: "Conectado",
-        description: activeFeatures.length > 0 ? 
-          `Servicios inicializados: ${activeFeatures.join(', ')}` : 
-          "Servicios inicializados correctamente",
+        description: `Backend: ${backend}${activeFeatures.length > 1 ? ` con ${activeFeatures.slice(1).join(', ')}` : ''}`,
       });
     } catch (error) {
       console.error('Error initializing services:', error);
       setIsConnected(false);
       toast({
         title: "Error de conexión",
-        description: "No se pudieron inicializar los servicios",
+        description: `No se pudo conectar al ${config.useN8nBackend ? 'webhook de n8n' : 'servicio MCP'}`,
         variant: "destructive",
       });
     }
@@ -141,25 +146,38 @@ const Index = () => {
     localStorage.setItem('enable_web_search', newConfig.enableWebSearch.toString());
     localStorage.setItem('web_search_provider', newConfig.webSearchProvider);
     localStorage.setItem('brave_api_key', newConfig.braveApiKey);
+    localStorage.setItem('n8n_webhook_url', newConfig.n8nWebhookUrl);
+    localStorage.setItem('use_n8n_backend', newConfig.useN8nBackend.toString());
     setShowConfig(false);
   };
 
   const getActiveFeatureBadges = () => {
     const badges = [];
-    if (config.enableTimeServer) {
+    
+    if (config.useN8nBackend) {
       badges.push(
-        <Badge key="time" className="bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-md">
-          Time MCP
+        <Badge key="n8n" className="bg-gradient-to-r from-purple-500 to-pink-500 text-white shadow-md">
+          <Globe className="w-3 h-3 mr-1" />
+          n8n Workflow
         </Badge>
       );
+    } else {
+      if (config.enableTimeServer) {
+        badges.push(
+          <Badge key="time" className="bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-md">
+            Time MCP
+          </Badge>
+        );
+      }
+      if (config.enableWebSearch) {
+        badges.push(
+          <Badge key="search" className="bg-gradient-to-r from-green-500 to-emerald-500 text-white shadow-md">
+            Web Search ({config.webSearchProvider})
+          </Badge>
+        );
+      }
     }
-    if (config.enableWebSearch) {
-      badges.push(
-        <Badge key="search" className="bg-gradient-to-r from-green-500 to-emerald-500 text-white shadow-md">
-          Web Search ({config.webSearchProvider})
-        </Badge>
-      );
-    }
+    
     return badges;
   };
 
@@ -174,11 +192,14 @@ const Index = () => {
             </div>
             <div>
               <h1 className="text-3xl font-bold bg-gradient-to-r from-gray-900 via-blue-800 to-purple-800 bg-clip-text text-transparent">
-                Chat MCP Pro
+                Chat {config.useN8nBackend ? 'n8n' : 'MCP'} Pro
               </h1>
               <p className="text-gray-600 flex items-center gap-2">
                 <Sparkles className="w-4 h-4 text-amber-500" />
-                Chat inteligente con herramientas MCP y búsqueda web
+                {config.useN8nBackend ? 
+                  'Chat con workflow de n8n y búsqueda Brave' : 
+                  'Chat inteligente con herramientas MCP y búsqueda web'
+                }
               </p>
             </div>
           </div>

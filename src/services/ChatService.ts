@@ -1,3 +1,12 @@
+import { N8nWebhookService, N8nConfig } from './N8nWebhookService';
+
+interface Message {
+  id: string;
+  content: string;
+  role: 'user' | 'assistant';
+  timestamp: Date;
+}
+
 interface Config {
   openaiApiKey: string;
   mcpServerUrl: string;
@@ -6,15 +15,9 @@ interface Config {
   enableWebSearch: boolean;
   webSearchProvider: 'pskill9' | 'brave' | 'docker';
   braveApiKey: string;
-}
-
-interface Message {
-  id: string;
-  content: string;
-  role: 'user' | 'assistant';
-  timestamp: Date;
-  searchResults?: any[];
-  tools?: any[];
+  // Nuevas configuraciones para n8n
+  n8nWebhookUrl: string;
+  useN8nBackend: boolean;
 }
 
 interface ChatResponse {
@@ -30,156 +33,55 @@ interface MCPTool {
 }
 
 export class ChatService {
+  private n8nService: N8nWebhookService | null = null;
   private config: Config | null = null;
-  private mcpConnection: WebSocket | null = null;
-  private availableTools: MCPTool[] = [];
 
   async initialize(config: Config): Promise<void> {
     this.config = config;
     
-    if (config.enableTimeServer) {
-      await this.initializeTimeServer();
-    }
-    
-    if (config.enableWebSearch) {
-      await this.initializeWebSearchServer();
-    }
-    
-    if (config.mcpServerUrl) {
-      await this.connectToMCP();
+    // Si está habilitado el backend de n8n, inicializar el servicio
+    if (config.useN8nBackend && config.n8nWebhookUrl) {
+      console.log('Inicializando servicio n8n con webhook:', config.n8nWebhookUrl);
+      
+      this.n8nService = new N8nWebhookService({
+        webhookUrl: config.n8nWebhookUrl,
+        corsEnabled: true
+      });
     }
   }
 
-  private async initializeTimeServer(): Promise<void> {
-    const timeTools = [
-      {
-        name: 'getCurrentTime',
-        description: 'Get the current time for a specific timezone',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            timezone: {
-              type: 'string',
-              description: 'Timezone (e.g., "America/New_York", "Europe/Madrid", "Asia/Tokyo")'
-            }
-          },
-          required: ['timezone']
-        }
-      },
-      {
-        name: 'getTimeDifference',
-        description: 'Calculate time difference between two timezones',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            timezone1: { type: 'string', description: 'First timezone' },
-            timezone2: { type: 'string', description: 'Second timezone' }
-          },
-          required: ['timezone1', 'timezone2']
-        }
-      }
-    ];
-    
-    this.availableTools.push(...timeTools);
-    console.log('Time MCP Server tools initialized:', timeTools);
-  }
-
-  private async initializeWebSearchServer(): Promise<void> {
-    if (!this.config) return;
-
-    let searchTools: MCPTool[] = [];
-
-    switch (this.config.webSearchProvider) {
-      case 'pskill9':
-        searchTools = [
-          {
-            name: 'search',
-            description: 'Search the web using Google scraping',
-            inputSchema: {
-              type: 'object',
-              properties: {
-                query: { type: 'string', description: 'Search query' },
-                limit: { type: 'number', description: 'Number of results (default: 5)', default: 5 }
-              },
-              required: ['query']
-            }
-          }
-        ];
-        break;
-
-      case 'brave':
-        searchTools = [
-          {
-            name: 'brave_web_search',
-            description: 'Search the web using Brave Search API',
-            inputSchema: {
-              type: 'object',
-              properties: {
-                query: { type: 'string', description: 'Search query' },
-                count: { type: 'number', description: 'Number of results (default: 10)', default: 10 },
-                offset: { type: 'number', description: 'Offset for pagination (default: 0)', default: 0 }
-              },
-              required: ['query']
-            }
-          }
-        ];
-        break;
-
-      case 'docker':
-        searchTools = [
-          {
-            name: 'google_search',
-            description: 'Search using Docker-based Google search with caching',
-            inputSchema: {
-              type: 'object',
-              properties: {
-                query: { type: 'string', description: 'Search query' },
-                num_results: { type: 'number', description: 'Number of results', default: 10 }
-              },
-              required: ['query']
-            }
-          }
-        ];
-        break;
+  async sendMessage(message: string, chatHistory: Message[] = []): Promise<ChatResponse> {
+    if (!this.config) {
+      throw new Error('ChatService no está inicializado');
     }
 
-    this.availableTools.push(...searchTools);
-    console.log(`${this.config.webSearchProvider} Web Search MCP Server tools initialized:`, searchTools);
-  }
-
-  private async connectToMCP(): Promise<void> {
-    if (!this.config) throw new Error('Configuration not set');
-
-    return new Promise((resolve, reject) => {
+    // Si n8n está configurado, usar ese backend
+    if (this.config.useN8nBackend && this.n8nService) {
+      console.log('Enviando mensaje a n8n backend');
+      
       try {
-        this.mcpConnection = new WebSocket(this.config.mcpServerUrl);
+        const response = await this.n8nService.sendMessage(message);
         
-        this.mcpConnection.onopen = () => {
-          console.log('Connected to additional MCP server');
-          resolve();
-        };
+        if (response.error) {
+          throw new Error(response.error);
+        }
 
-        this.mcpConnection.onerror = (error) => {
-          console.error('MCP connection error:', error);
-          reject(new Error('Failed to connect to MCP server'));
+        return {
+          content: response.content,
+          searchResults: response.searchResults || [],
+          tools: response.tools || []
         };
-
-        this.mcpConnection.onclose = () => {
-          console.log('MCP connection closed');
-        };
-
-        setTimeout(() => {
-          if (this.mcpConnection?.readyState !== WebSocket.OPEN) {
-            reject(new Error('MCP connection timeout'));
-          }
-        }, 5000);
       } catch (error) {
-        reject(error);
+        console.error('Error con n8n backend:', error);
+        throw error;
       }
-    });
+    }
+
+    // Fallback al comportamiento anterior (MCP local)
+    return this.sendMessageToMCP(message, chatHistory);
   }
 
-  async sendMessage(message: string, conversationHistory: Message[]): Promise<ChatResponse> {
+  private async sendMessageToMCP(message: string, chatHistory: Message[]): Promise<ChatResponse> {
     if (!this.config) throw new Error('Service not initialized');
 
     try {
@@ -214,7 +116,7 @@ export class ChatService {
       }
 
       // Construir mensajes con información de búsqueda integrada
-      const messages = this.buildMessagesWithSearchContext(message, conversationHistory, searchResults, toolResults);
+      const messages = this.buildMessagesWithSearchContext(message, chatHistory, searchResults, toolResults);
 
       const response = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
@@ -249,7 +151,7 @@ export class ChatService {
     }
   }
 
-  private buildMessagesWithSearchContext(message: string, conversationHistory: Message[], searchResults: any[], toolResults: any[]) {
+  private buildMessagesWithSearchContext(message: string, chatHistory: Message[], searchResults: any[], toolResults: any[]) {
     const systemPrompt = this.createSystemPrompt(searchResults, toolResults);
     const userPrompt = this.createUserPrompt(message, searchResults, toolResults);
 
@@ -258,7 +160,7 @@ export class ChatService {
         role: 'system',
         content: systemPrompt
       },
-      ...conversationHistory.slice(-4).map(msg => ({
+      ...chatHistory.slice(-4).map(msg => ({
         role: msg.role,
         content: msg.content
       })),
